@@ -105,6 +105,61 @@ class UiSmoke(unittest.TestCase):
         self.assertTrue(out["zones_hidden_on_loud_slot"])
         self.assertEqual(out["loud"], (250, 0, 200))
 
+    def test_custom_eq_profiles_can_be_saved_selected_and_deleted(self):
+        def script(win, out):
+            page, s = win.eq_page, win.state
+            page.chips["Rock"].set_active(True)
+            s.eq_gains[0] = 9.0
+            page.refresh()
+            out["custom_label_shown"] = page.custom_label.get_visible()
+            page.save_profile("My mix")
+            out["chip_added"] = "My mix" in page.profile_chips
+            out["selected"] = page.current_selection()
+            out["delete_shown"] = page.delete_btn.get_visible()
+            page.chips["Flat"].set_active(True)
+            out["flat"] = list(s.eq_gains)
+            page.profile_chips["My mix"].set_active(True)
+            out["restored_first_band"] = s.eq_gains[0]
+            page.delete_profile("My mix")
+            out["gone"] = "My mix" not in page.profile_chips and "My mix" not in s.eq_profiles
+            ok, msg = eq_module.valid_profile_name("Rock", s.eq_profiles)
+            out["builtin_name_rejected"] = not ok
+
+        from g560_lights import eq as eq_module
+        out = self.run_app(script)
+        self.assertTrue(out["custom_label_shown"])
+        self.assertTrue(out["chip_added"])
+        self.assertEqual(out["selected"], ("profile", "My mix"))
+        self.assertTrue(out["delete_shown"])
+        self.assertEqual(out["flat"], [0.0] * 10)
+        self.assertEqual(out["restored_first_band"], 9.0)
+        self.assertTrue(out["gone"])
+        self.assertTrue(out["builtin_name_rejected"])
+
+    def test_eq_problem_banner_offers_reconnect_and_turn_off(self):
+        def script(win, out):
+            page, s = win.eq_page, win.state
+            s.eq_enabled = True
+            page.refresh()
+            page.show_status(False, "The audio server restarted.")
+            out["buttons"] = (page.reconnect_btn.get_visible(), page.off_btn.get_visible())
+            out["banner"] = page.warning_rev.get_reveal_child()
+            clicked = []
+            page.on_reconnect = lambda: clicked.append("reconnect")
+            page.reconnect_btn.emit("clicked")
+            out["reconnect_called"] = clicked
+            page._turn_off()
+            out["eq_off"] = s.eq_enabled is False
+            page.show_notice("switched off for safety")
+            out["notice"] = page.notice_rev.get_reveal_child()
+
+        out = self.run_app(script)
+        self.assertEqual(out["buttons"], (True, True))
+        self.assertTrue(out["banner"])
+        self.assertEqual(out["reconnect_called"], ["reconnect"])
+        self.assertTrue(out["eq_off"])
+        self.assertTrue(out["notice"])
+
     def test_window_grows_to_fit_a_taller_page(self):
         from gi.repository import GLib
 

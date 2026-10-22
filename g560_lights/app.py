@@ -153,59 +153,161 @@ class Swatch(Gtk.DrawingArea):
         cr.stroke()
 
 
+def _fabric_tile():
+    """A tiny dotted tile: the look of the speaker cloth."""
+    tile = cairo.ImageSurface(cairo.FORMAT_ARGB32, 3, 3)
+    c = cairo.Context(tile)
+    c.arc(1.5, 1.5, 0.55, 0, 2 * math.pi)
+    c.set_source_rgba(0, 0, 0, 0.55)
+    c.fill()
+    pattern = cairo.SurfacePattern(tile)
+    pattern.set_extend(cairo.EXTEND_REPEAT)
+    return pattern
+
+
 class SpeakerPreview(Gtk.DrawingArea):
-    """The two speakers, drawn with the colors being sent right now."""
+    """The two satellites and the subwoofer, drawn like the real G560, in the colors being sent now.
+
+    Each satellite is a round cloth grille: the front light is a round halo and rim glow around it,
+    and the rear light is the round lens behind it.
+    """
+
+    POD = (-0.62, -0.78, 0.30)  # rear light lens: x, y, radius (unit coords, outer side is -x)
+    LABEL_GAP = 28  # px between the speakers' base and the LEFT / RIGHT labels
 
     def __init__(self, app_window):
         super().__init__()
         self.win = app_window
-        self.set_content_height(150)
+        self.set_content_height(238)
         self.set_hexpand(True)
         self.add_css_class("preview")
         self.set_draw_func(self._draw)
-        self.hit = {}  # zone -> (x, y, r)
+        self.hit = {}  # zone -> [(x, y, r), ...] in widget coordinates
+        self._fabric = _fabric_tile()
         click = Gtk.GestureClick()
         click.connect("released", self._clicked)
         self.add_controller(click)
 
-    def _glow(self, cr, x, y, r, color, selected):
+    def _satellite(self, cr, cx, base_y, r, mirror, front, rear, front_sel, rear_sel):
+        lit_front, lit_rear = max(front) > 8, max(rear) > 8
         cr.save()
-        if max(color) > 8:
-            grad = cairo.RadialGradient(x, y, r * 0.2, x, y, r * 2.4)
-            grad.add_color_stop_rgba(0, *rgb01(color), 0.75)
-            grad.add_color_stop_rgba(1, *rgb01(color), 0.0)
-            cr.set_source(grad)
-            cr.arc(x, y, r * 2.4, 0, 2 * math.pi)
+        cr.translate(cx, base_y - r)
+        cr.scale(-r if mirror else r, r)
+        px = 1.0 / r
+
+        # front light halo: round, and behind everything else (including the rear lens)
+        if lit_front:
+            halo = cairo.RadialGradient(0.0, 0.2, 0.8, 0.0, 0.2, 1.75)
+            halo.add_color_stop_rgba(0, *rgb01(front), 0.55)
+            halo.add_color_stop_rgba(1, *rgb01(front), 0.0)
+            cr.set_source(halo)
+            cr.arc(0.0, 0.2, 1.75, 0, 2 * math.pi)
             cr.fill()
-        cr.arc(x, y, r, 0, 2 * math.pi)
-        cr.set_source_rgb(*rgb01(color)) if max(color) > 8 else cr.set_source_rgb(0.16, 0.17, 0.2)
+
+        # rear light: the lens pod behind the speaker
+        ox, oy, orad = self.POD
+        if lit_rear:
+            glow = cairo.RadialGradient(ox, oy, orad * 0.4, ox, oy, orad * 2.8)
+            glow.add_color_stop_rgba(0, *rgb01(rear), 0.65)
+            glow.add_color_stop_rgba(1, *rgb01(rear), 0.0)
+            cr.set_source(glow)
+            cr.arc(ox, oy, orad * 2.8, 0, 2 * math.pi)
+            cr.fill()
+        cr.arc(ox, oy, orad, 0, 2 * math.pi)
+        cr.set_source_rgb(0.105, 0.11, 0.135)
         cr.fill_preserve()
-        cr.set_source_rgba(1, 1, 1, 0.9 if selected else 0.18)
-        cr.set_line_width(2.5 if selected else 1)
+        cr.set_source_rgba(1, 1, 1, 0.20)
+        cr.set_line_width(1.4 * px)
+        cr.stroke()
+        cr.arc(ox, oy, orad * 0.72, 0, 2 * math.pi)
+        cr.set_source_rgb(*rgb01(rear)) if lit_rear else cr.set_source_rgb(0.16, 0.17, 0.2)
+        cr.fill()
+        if rear_sel:
+            cr.arc(ox, oy, orad * 1.3, 0, 2 * math.pi)
+            cr.set_source_rgba(1, 1, 1, 0.95)
+            cr.set_line_width(2.2 * px)
+            cr.stroke()
+
+        # the dark housing ring and the glowing rim around the grille
+        cr.arc(0, 0, 1.07, 0, 2 * math.pi)  # the dark housing ring around the face
+        cr.set_source_rgb(0.063, 0.067, 0.078)
+        cr.fill()
+        if lit_front:
+            cr.set_line_cap(cairo.LINE_CAP_ROUND)
+            for width, alpha in ((0.34, 0.14), (0.18, 0.3), (0.075, 1.0)):  # bloom, then the bright core
+                cr.arc(0, 0, 1.06, math.radians(8), math.radians(172))
+                cr.set_source_rgba(*rgb01(front), alpha)
+                cr.set_line_width(width)
+                cr.stroke()
+            cr.arc(0, 0, 1.06, 0, 2 * math.pi)
+            cr.set_source_rgba(*rgb01(front), 0.35)
+            cr.set_line_width(0.035)
+            cr.stroke()
+        else:
+            cr.arc(0, 0, 1.06, 0, 2 * math.pi)
+            cr.set_source_rgba(1, 1, 1, 0.08)
+            cr.set_line_width(0.04)
+            cr.stroke()
+        if front_sel:
+            cr.arc(0, 0, 1.2, 0, 2 * math.pi)
+            cr.set_source_rgba(1, 1, 1, 0.95)
+            cr.set_line_width(2.2 * px)
+            cr.stroke()
+
+        # the cloth grille
+        face = cairo.RadialGradient(-0.25, -0.35, 0.1, 0, 0, 1.0)
+        face.add_color_stop_rgb(0, 0.26, 0.275, 0.31)
+        face.add_color_stop_rgb(1, 0.085, 0.09, 0.11)
+        cr.arc(0, 0, 1.0, 0, 2 * math.pi)
+        cr.set_source(face)
+        cr.fill_preserve()
+        cr.save()
+        cr.clip()
+        cr.identity_matrix()  # device space for the cloth dots
+        cr.set_source(self._fabric)
+        cr.paint_with_alpha(0.55)
+        cr.restore()
+        cr.arc(0, 0, 0.985, 0, 2 * math.pi)
+        cr.set_source_rgba(1, 1, 1, 0.17)
+        cr.set_line_width(1.6 * px)
+        cr.stroke()
+        cr.arc(0, 0, 0.76, math.radians(205), math.radians(262))
+        cr.set_source_rgba(1, 1, 1, 0.16)
+        cr.set_line_width(2.4 * px)
+        cr.set_line_cap(cairo.LINE_CAP_ROUND)
         cr.stroke()
         cr.restore()
 
-    def _bar(self, cr, x, y, bw, bh, color, selected):
-        lit = max(color) > 8
-        cr.save()
-        if lit:
-            grad = cairo.RadialGradient(x, y, 2, x, y, bw * 0.8)
-            grad.add_color_stop_rgba(0, *rgb01(color), 0.55)
-            grad.add_color_stop_rgba(1, *rgb01(color), 0.0)
-            cr.set_source(grad)
-            cr.arc(x, y, bw * 0.8, 0, 2 * math.pi)
-            cr.fill()
-        r = bh / 2.0
+    def _subwoofer(self, cr, cx, base_y, r):
+        w, h = r * 2.3, r * 3.3
+        x0, y0 = cx - w / 2, base_y - h
+        rad = 6
         cr.new_sub_path()
-        cr.arc(x + bw / 2 - r, y, r, -math.pi / 2, math.pi / 2)
-        cr.arc(x - bw / 2 + r, y, r, math.pi / 2, 3 * math.pi / 2)
+        cr.arc(x0 + w - rad, y0 + rad, rad, -math.pi / 2, 0)
+        cr.arc(x0 + w - rad, y0 + h - rad, rad, 0, math.pi / 2)
+        cr.arc(x0 + rad, y0 + h - rad, rad, math.pi / 2, math.pi)
+        cr.arc(x0 + rad, y0 + rad, rad, math.pi, 3 * math.pi / 2)
         cr.close_path()
-        cr.set_source_rgb(*rgb01(color)) if lit else cr.set_source_rgb(0.16, 0.17, 0.2)
+        cr.set_source_rgb(0.063, 0.067, 0.078)
         cr.fill_preserve()
-        cr.set_source_rgba(1, 1, 1, 0.9 if selected else 0.18)
-        cr.set_line_width(2.5 if selected else 1)
+        cr.set_source_rgba(1, 1, 1, 0.07)
+        cr.set_line_width(1)
         cr.stroke()
-        cr.restore()
+        pr = r * 0.52
+        pcy = y0 + h * 0.25
+        cr.arc(cx, pcy, pr, 0, 2 * math.pi)
+        cr.set_source_rgb(0.03, 0.03, 0.04)
+        cr.fill_preserve()
+        cr.set_source_rgba(0.80, 0.82, 0.86, 0.75)  # the silver ring around the driver
+        cr.set_line_width(3)
+        cr.stroke()
+        cr.arc(cx, pcy, pr * 0.62, 0, 2 * math.pi)
+        cr.set_source_rgb(0.02, 0.02, 0.025)
+        cr.fill()
+        for fx in (x0 + 8, x0 + w - 20):
+            cr.rectangle(fx, base_y, 12, 5)
+            cr.set_source_rgb(0.03, 0.03, 0.04)
+            cr.fill()
 
     def _draw(self, _area, cr, w, h):
         colors = self.win.engine.preview(self.win.state)
@@ -213,43 +315,34 @@ class SpeakerPreview(Gtk.DrawingArea):
             colors = [(0, 0, 0)] * 4
         editing = self.win.editing_zone()
         self.hit = {}
-        sp_w, sp_h = min(150, w * 0.27), min(130, h - 28)
-        centers = {"left": w * 0.28, "right": w * 0.72}
-        top = (h - sp_h) / 2
-        for side, cx in centers.items():
-            x0 = cx - sp_w / 2
-            cr.save()
-            cr.new_sub_path()
-            rad = 16
-            cr.arc(x0 + sp_w - rad, top + rad, rad, -math.pi / 2, 0)
-            cr.arc(x0 + sp_w - rad, top + sp_h - rad, rad, 0, math.pi / 2)
-            cr.arc(x0 + rad, top + sp_h - rad, rad, math.pi / 2, math.pi)
-            cr.arc(x0 + rad, top + rad, rad, math.pi, 3 * math.pi / 2)
-            cr.close_path()
-            cr.set_source_rgb(0.1, 0.105, 0.125)
-            cr.fill_preserve()
-            cr.set_source_rgba(1, 1, 1, 0.08)
-            cr.stroke()
-            cr.restore()
-            front = ZONE_LEFT_FRONT if side == "left" else ZONE_RIGHT_FRONT
-            rear = ZONE_LEFT_REAR if side == "left" else ZONE_RIGHT_REAR
-            fx, fy, fr = cx, top + sp_h * 0.62, sp_h * 0.2
-            rx, ry = cx, top + sp_h * 0.2
-            self._glow(cr, fx, fy, fr, colors[front], editing == front)
-            self._bar(cr, rx, ry, sp_w * 0.5, 9, colors[rear], editing == rear)
-            self.hit[front] = (fx, fy, fr * 1.4)
-            self.hit[rear] = (rx, ry, sp_w * 0.3)
-        cr.set_source_rgba(1, 1, 1, 0.35)
+        r = min(53.0, w * 0.1)
+        sub_h = r * 3.3
+        base_y = 12 + sub_h
+        left_x, right_x = w * 0.2, w * 0.8
+
+        self._subwoofer(cr, w / 2, base_y, r)
+        for side, cx in (("left", left_x), ("right", right_x)):
+            mirror = side == "right"
+            front = ZONE_RIGHT_FRONT if mirror else ZONE_LEFT_FRONT
+            rear = ZONE_RIGHT_REAR if mirror else ZONE_LEFT_REAR
+            self._satellite(cr, cx, base_y, r, mirror, colors[front], colors[rear],
+                            editing == front, editing == rear)
+            sx = -1 if mirror else 1
+            cy = base_y - r
+            self.hit[front] = [(cx, cy, 1.15 * r)]
+            self.hit[rear] = [(cx - sx * 0.62 * r, cy - 0.78 * r, 0.42 * r)]
+
+        cr.set_source_rgba(1, 1, 1, 0.42)
         cr.select_font_face("sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
         cr.set_font_size(11)
-        for text, cx in (("LEFT", centers["left"]), ("RIGHT", centers["right"])):
+        for text, cx in (("LEFT", left_x), ("RIGHT", right_x)):
             ext = cr.text_extents(text)
-            cr.move_to(cx - ext.width / 2, h - 6)
+            cr.move_to(cx - ext.width / 2, base_y + self.LABEL_GAP)
             cr.show_text(text)
 
     def _clicked(self, _gesture, _n, x, y):
-        for zone, (cx, cy, r) in self.hit.items():
-            if math.hypot(x - cx, y - cy) <= r:
+        for zone, spots in self.hit.items():
+            if any(math.hypot(x - cx, y - cy) <= rr for cx, cy, rr in spots):
                 self.win.select_zone(zone)
                 return
 
@@ -308,7 +401,7 @@ class MainWindow(Adw.ApplicationWindow):
         page.append(self._build_sliders())
         page.append(self._build_colors())
 
-        self.eq_page = EqPage(self.state, self._eq_changed)
+        self.eq_page = EqPage(self.state, self._eq_changed, on_reconnect=self.app.eqsvc.reconnect)
 
         self.stack = Adw.ViewStack(vexpand=True)
         self.stack.add_titled(self._scrolled(page), "lights", "Lights").set_icon_name("display-brightness-symbolic")
@@ -346,7 +439,7 @@ class MainWindow(Adw.ApplicationWindow):
         self.power_btn.set_visible(self.stack.get_visible_child_name() == "lights")
 
     def _eq_changed(self):
-        self.app.eqsvc.set(self.state.eq_enabled, self.state.eq_gains)
+        self.app.eqsvc.set(self.state.eq_enabled, self.state.eq_gains, self.state.eq_preamp)
         self._changed(push=False)
 
     def _build_effects(self):
@@ -582,7 +675,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _on_effect(self, chip, eid):
         if self._building or not chip.get_active():
             return
-        self.state.effect = eid
+        self.state.switch_effect(eid)  # each effect keeps its own colors
         self._refresh()
         self._changed()
         self._sync_timer()
@@ -716,7 +809,8 @@ class App(Adw.Application):
         self.background = background
         self.tab = tab
         self.engine = Engine(device=NullSpeakers() if self.dry_run else None, on_status=self._on_status)
-        self.eqsvc = NullEqService() if self.dry_run else EqService(on_status=self._on_eq_status)
+        self.eqsvc = NullEqService() if self.dry_run else EqService(
+            on_status=self._on_eq_status, on_crash_loop=self._on_eq_crash_loop)
         self.win = None
         self._last_status = (True, "")
 
@@ -726,6 +820,19 @@ class App(Adw.Application):
 
     def _on_eq_status(self, ok, message):
         GLib.idle_add(self._show_eq_status, ok, message)
+
+    def _on_eq_crash_loop(self, message):
+        GLib.idle_add(self._eq_gave_up, message)
+
+    def _eq_gave_up(self, message):
+        """The audio server kept restarting with the EQ on: switch it off and say why."""
+        if self.win:
+            self.win.state.eq_enabled = False
+            self.win.eq_page.refresh()
+            self.win.eq_page.show_notice(message)
+            self.win._changed(push=False)
+        self.eqsvc.set(False, self.win.state.eq_gains if self.win else [0.0] * 10)
+        return False
 
     def _show_eq_status(self, ok, message):
         if self.win:
@@ -755,7 +862,7 @@ class App(Adw.Application):
         if self.win is None:
             self.win = MainWindow(self)
             self.engine.start(self.win.state)
-            self.eqsvc.start(self.win.state.eq_enabled, self.win.state.eq_gains)
+            self.eqsvc.start(self.win.state.eq_enabled, self.win.state.eq_gains, self.win.state.eq_preamp)
             if self.tab:
                 self.win.show_tab(self.tab)
             if self.background:

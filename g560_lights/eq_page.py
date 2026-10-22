@@ -3,7 +3,7 @@
 import math
 
 import cairo
-from gi.repository import Adw, GLib, Gtk
+from gi.repository import Adw, GLib, Gtk, Pango
 
 from . import eq
 
@@ -91,22 +91,43 @@ class ResponseCurve(Gtk.DrawingArea):
 
 
 class EqPage(Gtk.Box):
-    def __init__(self, state, on_change):
+    def __init__(self, state, on_change, on_reconnect=None):
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         self.state = state
         self.on_change = on_change
+        self.on_reconnect = on_reconnect or (lambda: None)
         self._building = True
         self._timer = 0
         self._dirty = False
         self.set_margin_top(12)
         self.set_margin_bottom(24)
 
-        self.warning = Gtk.Label(wrap=True, xalign=0)
-        self.warning_box = Gtk.Box()
+        # Something is wrong with the EQ right now: say so, and offer ways out.
+        self.warning = Gtk.Label(wrap=True, xalign=0, hexpand=True)
+        self.warning_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.warning_box.add_css_class("status-card")
         self.warning_box.append(self.warning)
+        actions = Gtk.Box(spacing=8)
+        self.reconnect_btn = Gtk.Button(label="Reconnect now")
+        self.reconnect_btn.connect("clicked", lambda *_: self.on_reconnect())
+        self.off_btn = Gtk.Button(label="Turn EQ off")
+        self.off_btn.connect("clicked", lambda *_: self._turn_off())
+        actions.append(self.reconnect_btn)
+        actions.append(self.off_btn)
+        self.warning_box.append(actions)
         self.warning_rev = Gtk.Revealer(child=self.warning_box)
         self.append(self.warning_rev)
+
+        # A one-off message that stays until dismissed (e.g. the EQ was switched off for safety).
+        self.notice = Gtk.Label(wrap=True, xalign=0, hexpand=True)
+        self.notice_box = Gtk.Box(spacing=8)
+        self.notice_box.add_css_class("status-card")
+        self.notice_box.append(self.notice)
+        dismiss = Gtk.Button(label="Dismiss", valign=Gtk.Align.CENTER)
+        dismiss.connect("clicked", lambda *_: self.notice_rev.set_reveal_child(False))
+        self.notice_box.append(dismiss)
+        self.notice_rev = Gtk.Revealer(child=self.notice_box)
+        self.append(self.notice_rev)
 
         group = Adw.PreferencesGroup()
         self.row = Adw.ActionRow(title="Equalizer")
@@ -125,7 +146,8 @@ class EqPage(Gtk.Box):
 
         note = Gtk.Label(wrap=True, xalign=0, label=(
             "Applies to everything played through the G560, and keeps working after you close this app. "
-            "Boosts lower the overall level a little so loud peaks cannot distort: raise the volume to compare."))
+            "Boosts lower the level automatically so loud peaks cannot distort; use Pre to bring it back up "
+            "(raise it too far and loud music can distort)."))
         note.add_css_class("dim-label")
         note.add_css_class("caption")
         self.append(note)
@@ -137,23 +159,64 @@ class EqPage(Gtk.Box):
     # ---- construction -----------------------------------------------------
     def _build_presets(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        head = Gtk.Box(spacing=8)
         title = Gtk.Label(label="Presets", xalign=0)
         title.add_css_class("heading")
-        box.append(title)
-        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
-                           min_children_per_line=2, column_spacing=8, row_spacing=8, homogeneous=True)
+        head.append(title)
+        self.custom_label = Gtk.Label(label="Custom curve")  # shown when nothing matches
+        self.custom_label.add_css_class("dim-label")
+        self.custom_label.add_css_class("caption")
+        head.append(self.custom_label)
+        head.append(Gtk.Box(hexpand=True))
+        self.delete_btn = Gtk.Button(label="Delete profile")
+        self.delete_btn.add_css_class("flat")
+        self.delete_btn.connect("clicked", lambda *_: self.delete_profile(self._active_profile))
+        head.append(self.delete_btn)
+        self.save_btn = Gtk.MenuButton(label="Save as profile\u2026")
+        self.save_btn.add_css_class("flat")
+        self.save_btn.set_popover(self._build_save_popover())
+        head.append(self.save_btn)
+        box.append(head)
+
+        self.flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=4,
+                                min_children_per_line=2, column_spacing=8, row_spacing=8, homogeneous=True)
         self.chips = {}
+        self.profile_chips = {}
+        self._active_profile = None
         self._none = Gtk.ToggleButton()  # never shown: lets "no preset" be a state of the group
-        group = self._none
         for name in eq.PRESETS:
             chip = Gtk.ToggleButton(label=name, tooltip_text=HINTS.get(name))
             chip.add_css_class("chip")
-            chip.set_group(group)
+            chip.set_group(self._none)
             chip.connect("toggled", self._on_preset, name)
             self.chips[name] = chip
-            flow.append(chip)
-        box.append(flow)
+            self.flow.append(chip)
+        box.append(self.flow)
         return box
+
+    def _build_save_popover(self):
+        pop = Gtk.Popover()
+        inner = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        for side in ("top", "bottom", "start", "end"):
+            getattr(inner, "set_margin_" + side)(10)
+        row = Gtk.Box(spacing=8)
+        self.name_entry = Gtk.Entry(placeholder_text="Profile name", max_length=eq.MAX_PROFILE_NAME, width_chars=18)
+        self.name_entry.connect("activate", lambda *_: self._on_save_clicked())
+        self.name_entry.connect("changed", lambda *_: (self.name_entry.remove_css_class("error"), self.name_error.set_label("")))
+        row.append(self.name_entry)
+        ok = Gtk.Button(label="Save")
+        ok.add_css_class("suggested-action")
+        ok.connect("clicked", lambda *_: self._on_save_clicked())
+        row.append(ok)
+        inner.append(row)
+        self.name_error = Gtk.Label(xalign=0)
+        self.name_error.add_css_class("caption")
+        self.name_error.add_css_class("error")
+        inner.append(self.name_error)
+        pop.set_child(inner)
+        self.save_popover = pop
+        pop.connect("show", lambda *_: (self.name_entry.set_text(""), self.name_entry.grab_focus()))
+        return pop
 
     def _build_sliders(self):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -167,29 +230,50 @@ class EqPage(Gtk.Box):
         head.append(unit)
         box.append(head)
 
-        cols = Gtk.Box(spacing=4, homogeneous=True)
-        self.scales, self.values = [], []
-        for i, label in enumerate(LABELS):
+        def column(label_text, limit, handler, tooltip):
             col = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
             value = Gtk.Label(label="0")
             value.add_css_class("caption")
             value.add_css_class("dim-label")
-            scale = Gtk.Scale.new_with_range(Gtk.Orientation.VERTICAL, -eq.MAX_DB, eq.MAX_DB, 0.5)
+            scale = Gtk.Scale.new_with_range(Gtk.Orientation.VERTICAL, -limit, limit, 0.5)
             scale.set_inverted(True)
             scale.set_draw_value(False)
             scale.set_size_request(-1, 200)
             scale.set_vexpand(True)
             scale.add_mark(0, Gtk.PositionType.RIGHT, None)
-            scale.set_tooltip_text("%s Hz" % ("%gk" % (eq.UI_BANDS[i] / 1000) if eq.UI_BANDS[i] >= 1000 else eq.UI_BANDS[i]))
-            scale.connect("value-changed", self._on_slider, i)
-            name = Gtk.Label(label=label)
+            scale.set_tooltip_text(tooltip)
+            scale.connect("value-changed", handler)
+            name = Gtk.Label(label=label_text)
             name.add_css_class("caption")
             for w in (value, scale, name):
                 col.append(w)
+            return col, scale, value
+
+        row = Gtk.Box(spacing=8)
+        pre, self.preamp, self.preamp_value = column(
+            "Pre", eq.PREAMP_DB, self._on_preamp,
+            "Preamp: raises or lowers the overall level. 0 keeps the automatic headroom.")
+        pre.set_size_request(48, -1)
+        row.append(pre)
+        row.append(Gtk.Separator(orientation=Gtk.Orientation.VERTICAL))
+
+        cols = Gtk.Box(spacing=4, homogeneous=True, hexpand=True)
+        self.scales, self.values = [], []
+        for i, label in enumerate(LABELS):
+            hz = eq.UI_BANDS[i]
+            col, scale, value = column(
+                label, eq.MAX_DB, lambda s, i=i: self._on_slider(s, i),
+                "%s Hz" % ("%gk" % (hz / 1000) if hz >= 1000 else hz))
             cols.append(col)
             self.scales.append(scale)
             self.values.append(value)
-        box.append(cols)
+        row.append(cols)
+        box.append(row)
+
+        self.level = Gtk.Label(xalign=0)
+        self.level.add_css_class("dim-label")
+        self.level.add_css_class("caption")
+        box.append(self.level)
         return box
 
     # ---- state -> widgets -------------------------------------------------
@@ -206,10 +290,61 @@ class EqPage(Gtk.Box):
         for i, (scale, value) in enumerate(zip(self.scales, self.values)):
             scale.set_value(s.eq_gains[i])
             value.set_label(self._fmt(s.eq_gains[i]))
-        match = eq.matching_preset(s.eq_gains)
-        (self.chips[match] if match else self._none).set_active(True)
+        self.preamp.set_value(s.eq_preamp)
+        self.preamp_value.set_label(self._fmt(s.eq_preamp))
+        self._update_level()
+        self._sync_profile_chips()
+        self._select_current()
         self.curve.queue_draw()
         self._building = was
+
+    def _sync_profile_chips(self):
+        """Keep one chip per saved custom profile, after the built-in presets."""
+        names = list(self.state.eq_profiles)
+        if names == list(self.profile_chips):
+            return
+        for chip in self.profile_chips.values():
+            self.flow.remove(chip)
+        self.profile_chips = {}
+        for name in names:
+            chip = Gtk.ToggleButton(label=name, tooltip_text="Your profile: %s" % name)
+            chip.add_css_class("chip")
+            label = chip.get_child()
+            label.set_ellipsize(Pango.EllipsizeMode.END)
+            label.set_max_width_chars(12)
+            chip.set_group(self._none)
+            chip.connect("toggled", self._on_profile, name)
+            self.profile_chips[name] = chip
+            self.flow.append(chip)
+
+    def current_selection(self):
+        """('profile', name), ('preset', name) or None for a custom curve."""
+        s = self.state
+        for name, p in s.eq_profiles.items():
+            if eq.profile_matches(p, s.eq_gains, s.eq_preamp):
+                return ("profile", name)
+        preset = eq.matching_preset(s.eq_gains)
+        return ("preset", preset) if preset else None
+
+    def _select_current(self):
+        cur = self.current_selection()
+        if cur is None:
+            widget = self._none
+        elif cur[0] == "profile":
+            widget = self.profile_chips[cur[1]]
+        else:
+            widget = self.chips[cur[1]]
+        widget.set_active(True)
+        self._active_profile = cur[1] if cur and cur[0] == "profile" else None
+        self.custom_label.set_visible(cur is None)
+        self.delete_btn.set_visible(self._active_profile is not None)
+
+    def _update_level(self):
+        s = self.state
+        auto = eq.headroom(s.eq_gains)
+        total = eq.master_gain(s.eq_gains, s.eq_preamp)
+        self.level.set_label("Overall level: %+.1f dB  (automatic headroom %+.1f dB, preamp %+.1f dB)" % (
+            total + 0.0, auto + 0.0, s.eq_preamp + 0.0))
 
     def show_status(self, ok, message):
         if ok:
@@ -217,7 +352,19 @@ class EqPage(Gtk.Box):
             self.check_conflicts()
         else:
             self.warning.set_label(message)
+            self.reconnect_btn.set_visible(self.state.eq_enabled)
+            self.off_btn.set_visible(self.state.eq_enabled)
             self.warning_rev.set_reveal_child(True)
+
+    def show_notice(self, message):
+        self.notice.set_label(message)
+        self.notice_rev.set_reveal_child(True)
+
+    def _turn_off(self):
+        self.state.eq_enabled = False
+        self.warning_rev.set_reveal_child(False)
+        self.refresh()
+        self._changed()
 
     def check_conflicts(self):
         apps = eq.conflicting_apps()
@@ -266,15 +413,61 @@ class EqPage(Gtk.Box):
         self.refresh()
         self._changed()
 
+    def _on_profile(self, chip, name):
+        if self._building or not chip.get_active():
+            return
+        p = self.state.eq_profiles[name]
+        self.state.eq_gains = [float(g) for g in p["gains"]]
+        self.state.eq_preamp = float(p["preamp"])
+        self._enable_if_needed()
+        self.refresh()
+        self._changed()
+
+    def _on_save_clicked(self):
+        name = self.name_entry.get_text().strip()
+        ok, message = eq.valid_profile_name(name, self.state.eq_profiles)
+        if not ok:
+            self.name_entry.add_css_class("error")
+            self.name_error.set_label(message)
+            return
+        self.save_popover.popdown()
+        self.save_profile(name)
+
+    def save_profile(self, name):
+        """Keep the current curve and preamp under `name` (replacing a profile of that name)."""
+        s = self.state
+        s.eq_profiles[name] = {"gains": [float(g) for g in s.eq_gains], "preamp": float(s.eq_preamp)}
+        self.refresh()
+        self._changed()
+
+    def delete_profile(self, name):
+        if name in self.state.eq_profiles:
+            del self.state.eq_profiles[name]
+            self.refresh()
+            self._changed()
+
+    def _on_preamp(self, scale):
+        if self._building:
+            return
+        v = round(scale.get_value() * 2) / 2.0
+        self.state.eq_preamp = v
+        self.preamp_value.set_label(self._fmt(v))
+        self._update_level()
+        was, self._building = self._building, True
+        self._select_current()
+        self._building = was
+        self._enable_if_needed()
+        self._changed()
+
     def _on_slider(self, scale, i):
         if self._building:
             return
         v = round(scale.get_value() * 2) / 2.0
         self.state.eq_gains[i] = v
         self.values[i].set_label(self._fmt(v))
-        match = eq.matching_preset(self.state.eq_gains)
+        self._update_level()
         was, self._building = self._building, True
-        (self.chips[match] if match else self._none).set_active(True)
+        self._select_current()
         self._building = was
         self._enable_if_needed()
         self._changed()

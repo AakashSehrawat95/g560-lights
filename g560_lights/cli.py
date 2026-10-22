@@ -15,6 +15,7 @@ Usage:
   g560-lights breathe RRGGBB [rate [brightness]]
   g560-lights cycle [rate [brightness]]
   g560-lights off                      Lights off
+  g560-lights eq-reset                 Emergency: remove the equalizer and put all sound back on the speakers
   g560-lights --version | --help
 
 Arguments:
@@ -67,6 +68,20 @@ def run_command(args):
         dev.close()
 
 
+def eq_reset():
+    """Get sound back no matter what state the equalizer is in."""
+    from .eq import EqError, PulseEq
+
+    try:
+        master, moved = PulseEq().reset_audio()
+    except EqError as e:
+        print("Error: %s" % e, file=sys.stderr)
+        return 1
+    print("Equalizer removed. Default output: %s. Moved %d playing stream(s) onto it." % (master, moved))
+    print("If the g560-lights window is open, switch its Equalizer off too, or it will turn the filter back on.")
+    return 0
+
+
 def main(argv=None):
     args = list(sys.argv[1:] if argv is None else argv)
     if args and args[0] in ("-h", "--help", "help"):
@@ -78,6 +93,8 @@ def main(argv=None):
     if args and args[0] in ("solid", "off", "breathe", "cycle"):
         run_command(args)
         return 0
+    if args and args[0] == "eq-reset":
+        return eq_reset()
 
     try:
         from .app import run

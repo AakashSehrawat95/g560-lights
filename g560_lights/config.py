@@ -6,7 +6,7 @@ import os
 import tempfile
 from dataclasses import dataclass, field
 
-from .effects import BY_ID
+from .effects import BY_ID, default_palette
 
 
 def config_path():
@@ -45,12 +45,33 @@ class State:
     recent: list = field(default_factory=list)
     eq_enabled: bool = False
     eq_gains: list = field(default_factory=lambda: [0.0] * 10)
+    eq_preamp: float = 0.0  # dB, on top of the automatic headroom
+    eq_profiles: dict = field(default_factory=dict)  # name -> {"gains": [10], "preamp": dB}
+    # Each effect remembers its own colors: effect id -> {"zone_colors", "second", "sync"}.
+    # The live values for the current effect are zone_colors / colors / sync above.
+    palettes: dict = field(default_factory=dict)
 
     def copy(self):
         return dataclasses.replace(
             self, colors=list(self.colors), zone_colors=list(self.zone_colors),
             recent=list(self.recent), eq_gains=list(self.eq_gains),
+            palettes={k: dict(v, zone_colors=list(v["zone_colors"])) for k, v in self.palettes.items()},
+            eq_profiles={k: {"gains": list(v["gains"]), "preamp": v["preamp"]} for k, v in self.eq_profiles.items()},
         )
+
+    def _snapshot(self):
+        return {"zone_colors": list(self.zone_colors), "second": self.colors[1], "sync": self.sync}
+
+    def switch_effect(self, new_id):
+        """Change effect, keeping each effect's own colors."""
+        if BY_ID[self.effect].colors > 0:
+            self.palettes[self.effect] = self._snapshot()
+        self.effect = new_id
+        if BY_ID[new_id].colors > 0:
+            pal = self.palettes.get(new_id) or default_palette(new_id)
+            self.zone_colors = list(pal["zone_colors"])
+            self.colors = [self.zone_colors[0], pal["second"]]
+            self.sync = pal["sync"]
 
     def to_dict(self):
         return {
@@ -63,7 +84,18 @@ class State:
             "speed": self.speed,
             "power": self.power,
             "recent": [to_hex(c) for c in self.recent],
-            "eq": {"enabled": self.eq_enabled, "gains": list(self.eq_gains)},
+            "eq": {"enabled": self.eq_enabled, "gains": list(self.eq_gains), "preamp": self.eq_preamp,
+                   "profiles": {k: {"gains": list(v["gains"]), "preamp": v["preamp"]} for k, v in self.eq_profiles.items()}},
+            "palettes": self._palettes_for_save(),
+        }
+
+    def _palettes_for_save(self):
+        palettes = dict(self.palettes)
+        if BY_ID[self.effect].colors > 0:
+            palettes[self.effect] = self._snapshot()  # the live colors of the current effect
+        return {
+            eid: {"zone_colors": [to_hex(c) for c in p["zone_colors"]], "second": to_hex(p["second"]), "sync": p["sync"]}
+            for eid, p in palettes.items()
         }
 
     @classmethod
@@ -103,6 +135,29 @@ class State:
                     s.eq_gains = gains
             except (KeyError, TypeError, ValueError):
                 pass
+            try:
+                s.eq_preamp = max(-12.0, min(12.0, float(eq_data.get("preamp", 0.0))))
+            except (TypeError, ValueError):
+                pass
+            profiles = eq_data.get("profiles")
+            if isinstance(profiles, dict):
+                for name, p in list(profiles.items())[:24]:
+                    try:
+                        gains = [max(-12.0, min(12.0, float(g))) for g in p["gains"]]
+                        if isinstance(name, str) and name.strip() and len(name) <= 24 and len(gains) == 10:
+                            s.eq_profiles[name] = {"gains": gains, "preamp": max(-12.0, min(12.0, float(p.get("preamp", 0.0))))}
+                    except (KeyError, TypeError, ValueError, AttributeError):
+                        continue
+        saved = data.get("palettes")
+        if isinstance(saved, dict):
+            for eid, p in saved.items():
+                try:
+                    if BY_ID[eid].colors > 0:
+                        zones = [from_hex(h) for h in p["zone_colors"]]
+                        if len(zones) == 4:
+                            s.palettes[eid] = {"zone_colors": zones, "second": from_hex(p["second"]), "sync": bool(p["sync"])}
+                except (KeyError, TypeError, ValueError, AttributeError):
+                    continue
         return s
 
 

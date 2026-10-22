@@ -75,6 +75,19 @@ def flash_period(speed):
     return max(p, 1.0 / MAX_FLASH_HZ)
 
 
+# What an effect starts with the first time you pick it (then it remembers your choice).
+DEFAULT_FIRST = {
+    "static": (0, 255, 255), "breathe": (160, 60, 255), "fade": (0, 255, 255),
+    "strobe": (255, 255, 255), "candle": (255, 110, 20), "audio": (0, 255, 255),
+}
+DEFAULT_SECOND = {"fade": (255, 0, 200), "audio": (255, 0, 200)}
+
+
+def default_palette(effect_id):
+    first = DEFAULT_FIRST.get(effect_id, (0, 255, 255))
+    return {"zone_colors": [first] * 4, "second": DEFAULT_SECOND.get(effect_id, (255, 0, 200)), "sync": True}
+
+
 class Clock:
     """Animation phase that keeps moving smoothly when the speed changes.
 

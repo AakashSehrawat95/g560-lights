@@ -36,8 +36,7 @@ Version: $VERSION
 Section: utils
 Priority: optional
 Architecture: all
-Depends: python3 (>= 3.8), python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, pulseaudio-utils
-Recommends: zam-plugins
+Depends: python3 (>= 3.8), python3-gi, python3-gi-cairo, gir1.2-gtk-4.0, gir1.2-adw-1, pulseaudio-utils, caps
 Installed-Size: $(du -sk "$ROOT" | cut -f1)
 Maintainer: $MAINTAINER
 Description: Lighting control for Logitech G560 speakers

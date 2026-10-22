@@ -17,6 +17,8 @@ wheel, brightness and speed sliders and a set of effects.
 | Candle | app | Warm, uneven flicker |
 | Music | app | Pulses with what you are playing, in the color you pick; optionally shifts to a second color when loud (PulseAudio / PipeWire-Pulse) |
 
+**Each effect remembers its own colors** (Static can stay cyan while Candle stays orange).
+
 **Per-light colors.** Every effect that has a color (Static, Breathe, Gradient, Flash,
 Candle, Music) can color the four lights separately: in the Color section pick **All** to set
 everything at once, or one light (Left/Right, rear/front). Clicking a light in the speaker
@@ -30,21 +32,40 @@ your lights after a reboot, since the speakers forget them when powered off.
 
 ## Equalizer
 
-The **Equalizer** tab is a 10-band graphic EQ (31 Hz to 16 kHz, ±12 dB) with presets:
-Flat, Loudness, Bass boost, Less bass, Treble boost, Vocal, Movie, Gaming, Rock, Pop,
-Jazz, Classical and Electronic.
+The **Equalizer** tab is a 10-band graphic EQ (31 Hz to 16 kHz, ±12 dB) with a **Pre** (preamp)
+slider that raises or lowers the overall level, 13 presets (Flat, Loudness, Bass boost, Less bass,
+Treble boost, Vocal, Movie, Gaming, Rock, Pop, Jazz, Classical, Electronic) and your own
+**profiles**: shape a curve, press *Save as profile…*, and it appears next to the presets
+(select it to load, *Delete profile* to remove it).
 
-The speakers have no EQ of their own, so the app puts a PulseAudio filter
-(`module-ladspa-sink` running the ZamGEQ31 plugin from `zam-plugins`) in front of the
-G560's output and makes it the default sink. Running apps are moved across, so nothing
-needs restarting, and changes are swapped in without a dropout. The filter lives in the
-audio server and keeps working after you close the app; turning the EQ off (or **Start
-at login**, which re-applies it after a reboot) puts everything back.
+The speakers have no EQ of their own, so the app puts a PulseAudio filter (`module-ladspa-sink`
+running the `Eq10X2` plugin from the `caps` package) in front of the G560's output and makes it
+the default sink. Running apps are moved across, so nothing needs restarting, and changes are
+swapped in without a dropout. The filter lives in the audio server and keeps working after you
+close the app. Boosts lower the overall level by the largest boost so peaks cannot clip; use
+**Pre** to bring it back up (too far and loud music can distort). Like most graphic EQs the bands
+are broad and overlap, so presets track their curve closely while one slider moved alone sounds
+softer than its number.
 
-Boosts lower the master level by the largest boost so peaks cannot clip, so a boosted
-preset can sound quieter overall: raise the volume to compare. If PulseEffects or
-EasyEffects is running, it also grabs audio streams and the two will fight, so use one.
-Needs PulseAudio (or PipeWire's PulseAudio layer, untested) and `zam-plugins`.
+**If the sound drops out.** While the app is open it checks the filter every couple of seconds. If
+the speakers disappear (USB cable, power) or the audio server restarts, it rebuilds the filter by
+itself and moves your apps back onto it. The Equalizer tab shows what happened with **Reconnect
+now** and **Turn EQ off** buttons. If the audio server restarts twice within two minutes with the
+EQ on, the app switches the EQ off instead of looping and tells you so. As a last resort, from any
+terminal:
+
+```
+g560-lights eq-reset      # removes the filter and puts every app back on the speakers
+```
+
+Why `caps`: the filter runs inside PulseAudio's real-time audio thread, and if that thread runs
+too long the kernel kills the whole audio server (every app loses sound). The ZamGEQ31 plugin did
+this unpredictably (it died within a second of playback with most presets); `caps` survived every
+stress test, including 40 random extreme curves while music was playing.
+
+If PulseEffects or EasyEffects is running, it also grabs audio streams and the two will fight, so
+use one. Needs PulseAudio (PipeWire's PulseAudio layer is untested) and the `caps` package
+(`sudo apt install caps`; the `.deb` depends on it).
 
 ## Install (Ubuntu / Debian)
 
@@ -59,8 +80,7 @@ root. If the app says "No permission", unplug and replug the speakers' USB cable
 Run from a checkout without installing: `python3 -m g560_lights` (still needs the
 udev rule: `sudo cp data/70-g560-lights.rules /etc/udev/rules.d/`).
 
-Dependencies: `python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 pulseaudio-utils`;
-`zam-plugins` is recommended (needed for the Equalizer).
+Dependencies: `python3-gi python3-gi-cairo gir1.2-gtk-4.0 gir1.2-adw-1 pulseaudio-utils caps`.
 
 ## Command line
 
@@ -73,13 +93,14 @@ g560-lights cycle [rate_ms [brightness]]
 g560-lights off
 g560-lights --background     # start hidden and apply saved settings
 g560-lights --tab eq         # open on the Equalizer tab
+g560-lights eq-reset         # emergency: remove the equalizer, put all sound back on the speakers
 ```
 
 ## Develop
 
 ```bash
 python3 -m unittest discover -s tests
-G560_TEST_PULSE=1 python3 -m unittest tests.test_eq_integration   # real audio test on a private PulseAudio server
+G560_TEST_PULSE=1 python3 -m unittest tests.test_eq_integration   # real audio on a private PulseAudio server (needs caps)
 G560_TEST_UI=1 python3 -m unittest tests.test_ui_smoke            # drives the real widgets (opens a window)
 
 # Run a test build without touching the speakers or your audio setup, and without
