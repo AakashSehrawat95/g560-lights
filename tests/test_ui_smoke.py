@@ -187,6 +187,41 @@ class UiSmoke(unittest.TestCase):
         self.assertTrue(out["follows_disk"])
         self.assertTrue(out["old_menu_item_gone"])
 
+    def test_header_does_not_change_when_switching_tabs(self):
+        from gi.repository import GLib
+
+        app_out = {}
+        os.environ["G560_LIGHTS_DRY_RUN"] = "1"
+        os.environ["XDG_CONFIG_HOME"] = tempfile.mkdtemp()
+        from g560_lights import app as appmod
+        app = appmod.App(False)
+        names = ["lights", "eq", "settings"]
+        seen = {}
+
+        def look(i):
+            win = app.win
+            win.show_tab(names[i])
+            GLib.timeout_add(500, lambda: measure(i))
+            return False
+
+        def measure(i):
+            win = app.win
+            ok, bounds = win.switcher.compute_bounds(win)
+            seen[names[i]] = (win.power_btn.get_visible(), round(bounds.get_x()), round(bounds.get_width()))
+            if i + 1 < len(names):
+                look(i + 1)
+            else:
+                app.quit()
+            return False
+
+        app.connect("activate", lambda *_: GLib.timeout_add(700, lambda: look(0)))
+        app.run([])
+        self.assertEqual(set(seen), set(names))
+        for name, (power_visible, x, width) in seen.items():
+            self.assertTrue(power_visible, "the power button must stay visible on the %s tab" % name)
+        positions = {(x, w) for _, x, w in seen.values()}
+        self.assertEqual(len(positions), 1, "the tabs moved between tabs: %s" % seen)
+
     def test_window_grows_to_fit_a_taller_page(self):
         from gi.repository import GLib
 

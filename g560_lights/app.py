@@ -365,7 +365,7 @@ class MainWindow(Adw.ApplicationWindow):
     # ---- construction -----------------------------------------------------
     def _build(self):
         header = Adw.HeaderBar()
-        self.power_btn = Gtk.ToggleButton(icon_name="system-shutdown-symbolic", tooltip_text="Lights on / off")
+        self.power_btn = Gtk.ToggleButton(icon_name="system-shutdown-symbolic", tooltip_text="Speaker lights on / off")
         self.power_btn.connect("toggled", self._on_power)
         header.pack_start(self.power_btn)
         menu = Gio.Menu()
@@ -398,8 +398,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack.add_titled(self._scrolled(self.eq_page), "eq", "Equalizer").set_icon_name("audio-volume-high-symbolic")
         self.settings_page = SettingsPage(on_about=lambda: self.app.activate_action("about", None))
         self.stack.add_titled(self._scrolled(self.settings_page), "settings", "Settings").set_icon_name("emblem-system-symbolic")
-        self.stack.connect("notify::visible-child-name", self._on_tab)
-        header.set_title_widget(Adw.ViewSwitcherTitle(stack=self.stack, title="G560"))
+        self.switcher = Adw.ViewSwitcherTitle(stack=self.stack, title="G560")
+        header.set_title_widget(self.switcher)
 
         outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         outer.append(header)
@@ -426,9 +426,6 @@ class MainWindow(Adw.ApplicationWindow):
     def show_tab(self, name):
         if name in ("lights", "eq", "settings"):
             self.stack.set_visible_child_name(name)
-
-    def _on_tab(self, *_):
-        self.power_btn.set_visible(self.stack.get_visible_child_name() == "lights")
 
     def _eq_changed(self):
         self.app.eqsvc.set(self.state.eq_enabled, self.state.eq_gains, self.state.eq_preamp)
