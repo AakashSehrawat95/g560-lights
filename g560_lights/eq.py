@@ -236,6 +236,19 @@ class PulseEq:
             self.run("unload-module", module_id)
 
 
+class NullEqService:
+    """Does nothing; used in dry-run mode so a test build never touches the real audio setup."""
+
+    def start(self, enabled, gains):
+        pass
+
+    def stop(self):
+        pass
+
+    def set(self, enabled, gains):
+        pass
+
+
 class EqService:
     """Background worker: latest settings win, and a lost filter is rebuilt.
 

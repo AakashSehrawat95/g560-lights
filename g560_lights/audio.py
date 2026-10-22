@@ -97,3 +97,4 @@ class AudioMonitor:
                 slow[ch] = slow[ch] * 0.90 + fast[ch] * 0.10
             self._levels = (fast[0], fast[1], slow[0], slow[1])
         self._levels = (0.0, 0.0, 0.0, 0.0)
+        proc.stdout.close()

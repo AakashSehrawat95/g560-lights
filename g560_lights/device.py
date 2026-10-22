@@ -28,8 +28,9 @@ ZONE_NAMES = {
 MODE_STATIC, MODE_CYCLE, MODE_BREATHE = 0x01, 0x02, 0x04
 REPORT_LEN = 20
 # The speakers need a moment between reports: back-to-back writes fail with
-# EPROTO (measured: 0 ms and 2 ms fail, 5 ms and up are clean). 8 ms is margin.
-WRITE_GAP = 0.008
+# EPROTO. Measured on a G560 (gap after each write completes): 0-2 ms always
+# fail, 3-5 ms fail 3-8% of the time under sustained load, 6 ms ~0.2%, so 7 ms.
+WRITE_GAP = 0.007
 WRITE_RETRIES = 2
 MIN_RATE_MS, MAX_RATE_MS = 100, 60000
 
@@ -173,9 +174,11 @@ class G560:
         """colors: four RGB tuples, indexed by zone id."""
         self._send({z: build_report(z, MODE_STATIC, static_payload(colors[z])) for z in ZONES})
 
-    def set_breathe(self, color, rate_ms, brightness=100):
-        payload = breathe_payload(color, rate_ms, brightness)
-        self._send({z: build_report(z, MODE_BREATHE, payload) for z in ZONES})
+    def set_breathe(self, colors, rate_ms, brightness=100):
+        """colors: one RGB tuple for every light, or four (one per zone)."""
+        if len(colors) == 3 and not hasattr(colors[0], "__len__"):
+            colors = [colors] * 4
+        self._send({z: build_report(z, MODE_BREATHE, breathe_payload(colors[z], rate_ms, brightness)) for z in ZONES})
 
     def set_cycle(self, rate_ms, brightness=100):
         payload = cycle_payload(rate_ms, brightness)

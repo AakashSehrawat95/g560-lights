@@ -58,11 +58,83 @@ class EffectTests(unittest.TestCase):
         self.assertEqual(effects.render(s, p / 2)[0], (0, 255, 255))
 
 
+class PerLightAndPhaseTests(unittest.TestCase):
+    ZONES = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0)]
+
+    def state(self, effect, **kw):
+        return config.State(effect=effect, zone_colors=list(self.ZONES), **kw)
+
+    def test_every_one_color_effect_honours_per_light_colors(self):
+        for eid in ("static", "breathe", "strobe", "candle", "audio", "fade"):
+            self.assertTrue(effects.BY_ID[eid].per_zone, eid)
+        # Use a moment when the effect is bright enough that the hue is clear.
+        loud = (1, 1, 1, 1)
+        for eid, t in (("static", 0), ("breathe", effects.period_seconds(50) / 2), ("candle", 0.0), ("audio", 0)):
+            frame = effects.render(self.state(eid), t, loud)
+            hues = [max(range(3), key=lambda i: c[i]) for c in frame]
+            self.assertEqual(hues[:3], [0, 1, 2], (eid, frame))  # red, green, blue stay distinct
+
+    def test_music_uses_the_picked_color_unless_blending(self):
+        s = self.state("audio", brightness=100)
+        s.zone_colors = [(10, 200, 30)] * 4
+        s.colors = [(0, 0, 0), (255, 0, 200)]
+        loud = effects.render(s, 0, (1, 1, 1, 1))
+        self.assertEqual(loud[2], (10, 200, 30))  # fully loud, still the picked color, not pink
+        s.audio_blend = True
+        blended = effects.render(s, 0, (1, 1, 1, 1))
+        self.assertEqual(blended[2], (255, 0, 200))  # now shifts to the loud color
+
+    def test_changing_speed_does_not_make_the_animation_jump(self):
+        s = self.state("wave", speed=30)
+        clock = effects.Clock()
+        for step in range(100):
+            clock.advance(step * 0.04, 30)
+        before = effects.render(s, clock)
+        s.speed = 60  # slider dragged from 30 to 60
+        clock.advance(100 * 0.04, 60)  # the very next frame
+        after = effects.render(s, clock)
+        smooth = max(max(abs(x - y) for x, y in zip(a, b)) for a, b in zip(before, after))
+        self.assertLess(smooth, 40)  # a small step, not a teleport
+        # the old time / period maths lands on a completely different color
+        old = effects.render(s, 100 * 0.04)
+        jump = max(max(abs(x - y) for x, y in zip(a, b)) for a, b in zip(before, old))
+        self.assertGreater(jump, 50)
+        self.assertGreater(jump, 2.5 * smooth)
+
+    def test_speed_up_means_faster_phase(self):
+        slow, fast = effects.Clock(), effects.Clock()
+        for step in range(50):
+            slow.advance(step * 0.04, 20)
+            fast.advance(step * 0.04, 80)
+        self.assertGreater(fast.cycles, slow.cycles * 3)
+
+    def test_a_long_stall_does_not_fast_forward(self):
+        clock = effects.Clock()
+        clock.advance(0.0, 50)
+        clock.advance(30.0, 50)  # app was suspended for 30 s
+        self.assertLessEqual(clock.t, 0.25)
+
+
 class ConfigTests(unittest.TestCase):
     def test_roundtrip(self):
         s = config.State(effect="fade", colors=[(1, 2, 3), (4, 5, 6)], brightness=42, speed=7, sync=False)
         back = config.State.from_dict(s.to_dict())
         self.assertEqual(back.to_dict(), s.to_dict())
+
+    def test_copy_keeps_every_field_and_is_independent(self):
+        s = config.State(effect="audio", colors=[(1, 2, 3), (4, 5, 6)], zone_colors=[(9, 9, 9)] * 4, sync=False,
+                         audio_blend=True, brightness=42, speed=7, power=False, recent=[(1, 1, 1)],
+                         eq_enabled=True, eq_gains=[1.0] * 10)
+        c = s.copy()
+        self.assertEqual(c.to_dict(), s.to_dict())
+        c.zone_colors[0] = (0, 0, 0)
+        c.eq_gains[0] = 5.0
+        self.assertEqual(s.zone_colors[0], (9, 9, 9))
+        self.assertEqual(s.eq_gains[0], 1.0)
+
+    def test_old_config_with_one_shared_color_fills_every_light(self):
+        s = config.State.from_dict({"effect": "static", "colors": ["ff0000", "00ff00"]})
+        self.assertEqual(s.zone_colors, [(255, 0, 0)] * 4)
 
     def test_garbage_falls_back_to_defaults(self):
         for bad in (None, [], "x", {"effect": "nope", "colors": "zz", "brightness": "high", "speed": None}):

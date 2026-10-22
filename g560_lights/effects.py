@@ -24,19 +24,20 @@ class EffectInfo:
     colors: int  # how many colors the user picks (0, 1 or 2)
     speed_label: str  # "" = no speed slider
     blurb: str
-    per_zone: bool = False
+    per_zone: bool = False  # the first color can be set per light
     color_labels: tuple = ("Color", "Color 2")
 
 
 EFFECTS = [
-    EffectInfo("static", "Static", True, 1, "", "One steady color, or a different one per light.", per_zone=True),
-    EffectInfo("breathe", "Breathe", True, 1, "Speed", "Fades the color in and out. Runs on the speakers themselves."),
+    EffectInfo("static", "Static", True, 1, "", "One steady color, or a different one for each light.", per_zone=True),
+    EffectInfo("breathe", "Breathe", True, 1, "Speed", "Fades the colors in and out. Runs on the speakers themselves.", per_zone=True),
     EffectInfo("cycle", "Spectrum", True, 0, "Speed", "Cycles through every color. Runs on the speakers themselves."),
     EffectInfo("wave", "Wave", False, 0, "Speed", "A rainbow that travels across the speakers."),
-    EffectInfo("fade", "Gradient", False, 2, "Speed", "Blends smoothly back and forth between two colors.", color_labels=("From", "To")),
-    EffectInfo("strobe", "Flash", False, 1, "Speed", "Front and rear lights flash in turn. Flashing lights: take care if you are sensitive to them."),
-    EffectInfo("candle", "Candle", False, 1, "Flicker", "A warm, uneven flame flicker."),
-    EffectInfo("audio", "Music", False, 2, "Sensitivity", "Lights follow the sound you are playing.", color_labels=("Quiet", "Loud")),
+    EffectInfo("fade", "Gradient", False, 2, "Speed", "Blends smoothly back and forth between two colors.", per_zone=True, color_labels=("From", "To")),
+    EffectInfo("strobe", "Flash", False, 1, "Speed", "Front and rear lights flash in turn. Flashing lights: take care if you are sensitive to them.", per_zone=True),
+    EffectInfo("candle", "Candle", False, 1, "Flicker", "An uneven flame flicker in your color.", per_zone=True),
+    EffectInfo("audio", "Music", False, 1, "Sensitivity", "The lights pulse with the sound you are playing, in the color you pick.", per_zone=True,
+               color_labels=("Color", "Loud color")),
 ]
 BY_ID = {e.id: e for e in EFFECTS}
 Color = tuple
@@ -74,46 +75,86 @@ def flash_period(speed):
     return max(p, 1.0 / MAX_FLASH_HZ)
 
 
-def render(state, t, audio=(0.0, 0.0, 0.0, 0.0)):
-    """Return four (r, g, b) tuples (0-255 ints) for time t seconds.
+class Clock:
+    """Animation phase that keeps moving smoothly when the speed changes.
+
+    Computing phase as time / period makes every color jump the moment the
+    period changes (dragging the Speed slider). Instead the phase is the
+    running total of dt / period, so a speed change only changes the pace.
+    """
+
+    def __init__(self):
+        self.last = None
+        self.t = 0.0  # seconds
+        self.cycles = 0.0  # full cycles of the speed-set period
+        self.flashes = 0.0  # flash periods
+        self.flicker = 0.0  # candle time, scaled by the flicker setting
+
+    def advance(self, now, speed):
+        if self.last is not None:
+            dt = max(0.0, min(now - self.last, 0.25))  # a long stall must not fast-forward
+            self.t += dt
+            self.cycles += dt / period_seconds(speed)
+            self.flashes += dt / flash_period(speed)
+            self.flicker += dt * (0.4 + speed / 50.0)
+        self.last = now
+        return self
+
+    @classmethod
+    def at(cls, t, speed):
+        """The clock as if `speed` had been constant since t = 0 (tests, previews)."""
+        clock = cls()
+        clock.t = t
+        clock.cycles = t / period_seconds(speed)
+        clock.flashes = t / flash_period(speed)
+        clock.flicker = t * (0.4 + speed / 50.0)
+        return clock
+
+
+def render(state, clock, audio=(0.0, 0.0, 0.0, 0.0)):
+    """Return four (r, g, b) tuples (0-255 ints) for the moment `clock` shows.
+
+    `clock` is a Clock, or a number of seconds. The first color of every
+    effect is per light (state.zone_colors); the second (gradient end, loud
+    color) is shared (state.colors[1]).
 
     audio is (left, right, left_slow, right_slow) levels in 0..1.
     """
+    if not isinstance(clock, Clock):
+        clock = Clock.at(float(clock), state.speed)
     eid = state.effect
-    c1, c2 = state.colors[0], state.colors[1]
+    mine = state.zone_colors  # first color, per light
+    c2 = state.colors[1]
     speed = state.speed
 
     if eid == "static":
-        out = list(state.zone_colors) if not state.sync else [c1] * 4
+        out = list(mine)
     elif eid == "breathe":
-        level = 0.5 - 0.5 * math.cos(2 * math.pi * t / period_seconds(speed))
-        out = [scale(c1, level)] * 4
+        level = 0.5 - 0.5 * math.cos(2 * math.pi * clock.cycles)
+        out = [scale(c, level) for c in mine]
     elif eid == "cycle":
-        out = [hsv(t / period_seconds(speed))] * 4
+        out = [hsv(clock.cycles)] * 4
     elif eid == "wave":
-        p = period_seconds(speed)
-        out = [hsv(t / p - ZONE_POSITION[z] * 0.12) for z in range(4)]
+        out = [hsv(clock.cycles - ZONE_POSITION[z] * 0.12) for z in range(4)]
     elif eid == "fade":
-        p = period_seconds(speed)
         out = [
-            lerp(c1, c2, 0.5 - 0.5 * math.cos(2 * math.pi * (t / p - ZONE_POSITION[z] * 0.05)))
+            lerp(mine[z], c2, 0.5 - 0.5 * math.cos(2 * math.pi * (clock.cycles - ZONE_POSITION[z] * 0.05)))
             for z in range(4)
         ]
     elif eid == "strobe":
-        phase = (t / flash_period(speed)) % 1.0
-        front_on = phase < 0.5
-        out = [c1 if (front_on if z in (2, 3) else not front_on) else (0, 0, 0) for z in range(4)]
+        front_on = (clock.flashes % 1.0) < 0.5
+        out = [mine[z] if (front_on if z in (2, 3) else not front_on) else (0, 0, 0) for z in range(4)]
     elif eid == "candle":
-        k = 0.4 + speed / 50.0
         out = []
         for z in range(4):
+            f = clock.flicker
             v = (
                 0.62
-                + 0.20 * math.sin(k * (3.1 + z * 0.7) * t + z)
-                + 0.12 * math.sin(k * (7.3 + z * 1.1) * t + 2 * z)
-                + 0.06 * math.sin(k * (13.7 + z * 0.4) * t + 3 * z)
+                + 0.20 * math.sin((3.1 + z * 0.7) * f + z)
+                + 0.12 * math.sin((7.3 + z * 1.1) * f + 2 * z)
+                + 0.06 * math.sin((13.7 + z * 0.4) * f + 3 * z)
             )
-            out.append(scale(c1, clamp01(v)))
+            out.append(scale(mine[z], clamp01(v)))
     elif eid == "audio":
         left, right, left_slow, right_slow = audio
         gain = 0.5 + speed / 50.0
@@ -121,7 +162,8 @@ def render(state, t, audio=(0.0, 0.0, 0.0, 0.0)):
         out = []
         for z in range(4):
             level = clamp01(levels[z] * gain)
-            out.append(scale(lerp(c1, c2, level), 0.08 + 0.92 * level))
+            color = lerp(mine[z], c2, level) if state.audio_blend else mine[z]
+            out.append(scale(color, 0.08 + 0.92 * level))
     else:
         out = [(0, 0, 0)] * 4
 

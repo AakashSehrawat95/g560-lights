@@ -9,13 +9,18 @@ wheel, brightness and speed sliders and a set of effects.
 | Effect | Runs on | Notes |
 |---|---|---|
 | Static | speakers | One color, or a different color for each of the four lights |
-| Breathe | speakers | Fades one color in and out |
+| Breathe | speakers | Fades your colors in and out |
 | Spectrum | speakers | Cycles through every color |
 | Wave | app | A rainbow travelling across the speakers |
-| Gradient | app | Blends between two colors |
+| Gradient | app | Blends from a color (per light) to a second color |
 | Flash | app | Front and rear lights flash in turn (limited to 6 flashes a second) |
 | Candle | app | Warm, uneven flicker |
-| Music | app | Lights follow what you are playing (PulseAudio / PipeWire-Pulse) |
+| Music | app | Pulses with what you are playing, in the color you pick; optionally shifts to a second color when loud (PulseAudio / PipeWire-Pulse) |
+
+**Per-light colors.** Every effect that has a color (Static, Breathe, Gradient, Flash,
+Candle, Music) can color the four lights separately: in the Color section pick **All** to set
+everything at once, or one light (Left/Right, rear/front). Clicking a light in the speaker
+preview selects it too.
 
 "Runs on speakers" effects keep going after you close the app. The others are
 animated by the app, which keeps running in the background when you close its
@@ -75,6 +80,11 @@ g560-lights --tab eq         # open on the Equalizer tab
 ```bash
 python3 -m unittest discover -s tests
 G560_TEST_PULSE=1 python3 -m unittest tests.test_eq_integration   # real audio test on a private PulseAudio server
+G560_TEST_UI=1 python3 -m unittest tests.test_ui_smoke            # drives the real widgets (opens a window)
+
+# Run a test build without touching the speakers or your audio setup, and without
+# handing off to a copy of the app you have open:
+G560_LIGHTS_DRY_RUN=1 python3 -m g560_lights
 ```
 
 ## Credits

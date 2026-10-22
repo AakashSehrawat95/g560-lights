@@ -10,12 +10,12 @@ import gi
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
 import cairo  # noqa: E402
-from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 from . import APP_ID, __version__, config, effects  # noqa: E402
 from .device import ZONE_LEFT_FRONT, ZONE_LEFT_REAR, ZONE_NAMES, ZONE_RIGHT_FRONT, ZONE_RIGHT_REAR  # noqa: E402
-from .engine import Engine  # noqa: E402
-from .eq import EqService  # noqa: E402
+from .engine import Engine, NullSpeakers  # noqa: E402
+from .eq import EqService, NullEqService  # noqa: E402
 from .eq_page import EqPage  # noqa: E402
 
 PRESETS = [
@@ -268,7 +268,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._building = True
         self._save_id = 0
         self._tick_id = 0
-        self.set_default_size(560, 900)
+        self.set_default_size(560, -1)  # as tall as the content needs
         self.set_icon_name("g560-lights")
 
         self.connect("close-request", self._on_close)
@@ -322,11 +322,21 @@ class MainWindow(Adw.ApplicationWindow):
         self.set_content(outer)
 
     @staticmethod
-    def _scrolled(child):
+    def _screen_limit():
+        """Tallest the content area may grow before it scrolls: the screen minus bars."""
+        try:
+            monitors = Gdk.Display.get_default().get_monitors()
+            return max(600, monitors.get_item(0).get_geometry().height - 160)
+        except (AttributeError, TypeError):
+            return 900
+
+    def _scrolled(self, child):
         clamp = Adw.Clamp(maximum_size=560, child=child)
         clamp.set_margin_start(16)
         clamp.set_margin_end(16)
-        return Gtk.ScrolledWindow(child=clamp, vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER)
+        return Gtk.ScrolledWindow(
+            child=clamp, vexpand=True, hscrollbar_policy=Gtk.PolicyType.NEVER,
+            propagate_natural_height=True, max_content_height=self._screen_limit())
 
     def show_tab(self, name):
         if name in ("lights", "eq"):
@@ -393,10 +403,28 @@ class MainWindow(Adw.ApplicationWindow):
             self.slot_box.append(b)
         inner.append(self.slot_box)
 
-        # zone selector (static, per-zone)
-        self.zone_label = Gtk.Label(xalign=0.5)
-        self.zone_label.add_css_class("dim-label")
-        inner.append(self.zone_label)
+        # which light(s) the color goes to
+        self.zone_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        zone_row = Gtk.Box(spacing=0, halign=Gtk.Align.CENTER)
+        zone_row.add_css_class("linked")
+        self.zone_btns = {}
+        first = None
+        for key, label in (("all", "All"), (ZONE_LEFT_REAR, "Left rear"), (ZONE_RIGHT_REAR, "Right rear"),
+                           (ZONE_LEFT_FRONT, "Left front"), (ZONE_RIGHT_FRONT, "Right front")):
+            btn = Gtk.ToggleButton(label=label)
+            if first is None:
+                first = btn
+            else:
+                btn.set_group(first)
+            btn.connect("toggled", self._on_zone_button, key)
+            self.zone_btns[key] = btn
+            zone_row.append(btn)
+        self.zone_box.append(zone_row)
+        hint = Gtk.Label(label="Set every light at once, or pick one (you can also click a light in the preview).")
+        hint.add_css_class("dim-label")
+        hint.add_css_class("caption")
+        self.zone_box.append(hint)
+        inner.append(self.zone_box)
 
         row = Gtk.Box(spacing=18)
         self.wheel = ColorWheel(self._on_pick)
@@ -406,29 +434,30 @@ class MainWindow(Adw.ApplicationWindow):
         self.hex.connect("changed", self._on_hex)
         side.append(Gtk.Label(label="Hex", xalign=0))
         side.append(self.hex)
-        self.sync_row = Gtk.Box(spacing=8)
-        self.sync_row.append(Gtk.Label(label="Same color on all lights", xalign=0, hexpand=True, wrap=True))
-        self.sync_switch = Gtk.Switch(valign=Gtk.Align.CENTER)
-        self.sync_switch.connect("notify::active", self._on_sync)
-        self.sync_row.append(self.sync_switch)
-        side.append(self.sync_row)
+        self.blend_row = Gtk.Box(spacing=8)  # Music only
+        self.blend_row.append(Gtk.Label(label="Shift to a second color when loud", xalign=0, hexpand=True, wrap=True))
+        self.blend_switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.blend_switch.connect("notify::active", self._on_blend)
+        self.blend_row.append(self.blend_switch)
+        side.append(self.blend_row)
         row.append(side)
         inner.append(row)
 
-        inner.append(self._swatch_flow(PRESETS, "Presets"))
+        inner.append(self._swatch_flow(PRESETS, "Presets", per_line=7))
         self.recent_holder = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         inner.append(self.recent_holder)
 
         self.color_box.append(card)
         return self.color_box
 
-    def _swatch_flow(self, hexes, title):
+    def _swatch_flow(self, hexes, title, per_line=14):
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         label = Gtk.Label(label=title, xalign=0)
         label.add_css_class("caption")
         label.add_css_class("dim-label")
         box.append(label)
-        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=14,
+        flow = Gtk.FlowBox(selection_mode=Gtk.SelectionMode.NONE, max_children_per_line=per_line,
+                           min_children_per_line=min(per_line, len(hexes)),
                            column_spacing=6, row_spacing=6, homogeneous=True)
         for h in hexes:
             flow.append(Swatch(config.from_hex(h), self._set_color))
@@ -459,39 +488,45 @@ class MainWindow(Adw.ApplicationWindow):
         return row, scale, value
 
     # ---- state -> widgets -------------------------------------------------
-    def editing_zone(self):
+    def _two_colors(self):
         s = self.state
-        return self.zone if (s.effect == "static" and not s.sync) else None
+        return effects.BY_ID[s.effect].colors == 2 or (s.effect == "audio" and s.audio_blend)
+
+    def editing_zone(self):
+        """The single light being edited (highlighted in the preview), or None."""
+        s = self.state
+        if effects.BY_ID[s.effect].per_zone and not s.sync and self.slot == 0:
+            return self.zone
+        return None
 
     def _current_color(self):
         s = self.state
-        if s.effect == "static" and not s.sync:
-            return s.zone_colors[self.zone]
-        return s.colors[self.slot if effects.BY_ID[s.effect].colors == 2 else 0]
+        if self.slot == 1 and self._two_colors():
+            return s.colors[1]
+        return s.zone_colors[0 if s.sync else self.zone]
 
     def _refresh(self):
         """Push self.state into every widget without triggering handlers."""
         was, self._building = self._building, True
         s = self.state
         info = effects.BY_ID[s.effect]
+        two = self._two_colors()
         self.chips[s.effect].set_active(True)
         self.power_btn.set_active(s.power)
         self.blurb.set_label(info.blurb + ("" if info.hardware else "\nThis one is animated by the app, which keeps running in the background when you close the window."))
 
         self.color_box.set_visible(info.colors > 0)
-        self.slot_box.set_visible(info.colors == 2)
+        self.slot_box.set_visible(two)
         for i, b in enumerate(self.slot_btns):
             b.set_label(info.color_labels[i])
-        if self.slot >= max(1, info.colors):
+        if self.slot >= (2 if two else 1):
             self.slot = 0
         self.slot_btns[self.slot].set_active(True)
-        self.sync_row.set_visible(info.per_zone)
-        self.sync_switch.set_active(s.sync)
-        per_zone = info.per_zone and not s.sync
-        self.zone_label.set_visible(per_zone)
-        if per_zone:
-            self.zone_label.set_label("Editing: %s light (click a light above)" % ZONE_NAMES[self.zone].lower())
-        self.color_title.set_label("Color" if info.colors < 2 else "Colors")
+        self.zone_box.set_visible(info.per_zone and self.slot == 0)
+        self.zone_btns["all" if s.sync else self.zone].set_active(True)
+        self.blend_row.set_visible(s.effect == "audio")
+        self.blend_switch.set_active(s.audio_blend)
+        self.color_title.set_label("Colors" if two else "Color")
 
         color = self._current_color()
         self.wheel.set_color(color)
@@ -505,6 +540,20 @@ class MainWindow(Adw.ApplicationWindow):
         self.brightness_val.set_label(str(s.brightness))
         self._refresh_recent()
         self._building = was
+        GLib.idle_add(self._fit_height)
+
+    def _fit_height(self):
+        """Grow the window downward when the content needs more room (never shrinks it)."""
+        try:
+            needed = self.get_content().measure(Gtk.Orientation.VERTICAL, -1)[1]
+            monitors = Gdk.Display.get_default().get_monitors()
+            limit = monitors.get_item(0).get_geometry().height - 100
+        except (AttributeError, TypeError):
+            return False
+        needed = min(needed, limit)
+        if needed > self.get_height() + 2:
+            self.set_default_size(self.get_width() or 560, needed)
+        return False
 
     def _refresh_recent(self):
         child = self.recent_holder.get_first_child()
@@ -513,7 +562,7 @@ class MainWindow(Adw.ApplicationWindow):
             self.recent_holder.remove(child)
             child = nxt
         if self.state.recent:
-            self.recent_holder.append(self._swatch_flow([config.to_hex(c) for c in self.state.recent], "Recent"))
+            self.recent_holder.append(self._swatch_flow([config.to_hex(c) for c in self.state.recent], "Recent", per_line=8))
 
     def _changed(self, push=True):
         if self._building:
@@ -551,28 +600,39 @@ class MainWindow(Adw.ApplicationWindow):
         self._refresh()
 
     def select_zone(self, zone):
-        if self.editing_zone() is None:
+        """A light was clicked in the preview."""
+        if not effects.BY_ID[self.state.effect].per_zone:
             return
+        self.slot = 0
+        self.state.sync = False
         self.zone = zone
         self._refresh()
 
-    def _on_sync(self, switch, _pspec):
+    def _on_zone_button(self, btn, key):
+        if self._building or not btn.get_active():
+            return
+        if key == "all":
+            self.state.sync = True
+        else:
+            self.state.sync = False
+            self.zone = key
+        self._refresh()
+
+    def _on_blend(self, switch, _pspec):
         if self._building:
             return
-        self.state.sync = switch.get_active()
-        if not self.state.sync:  # start per-zone editing from the shared color
-            self.state.zone_colors = [self.state.colors[0]] * 4
+        self.state.audio_blend = switch.get_active()
         self._refresh()
         self._changed()
 
     def _store_color(self, color):
         s = self.state
-        if s.effect == "static" and not s.sync:
-            s.zone_colors[self.zone] = color
-        elif effects.BY_ID[s.effect].colors == 2:
-            s.colors[self.slot] = color
+        if self.slot == 1 and self._two_colors():
+            s.colors[1] = color
+        elif s.sync:
+            s.zone_colors = [color] * 4
         else:
-            s.colors[0] = color
+            s.zone_colors[self.zone] = color
 
     def _on_pick(self, color):
         self._store_color(color)
@@ -649,11 +709,14 @@ class MainWindow(Adw.ApplicationWindow):
 # --------------------------------------------------------------------------
 class App(Adw.Application):
     def __init__(self, background, tab=None):
-        super().__init__(application_id=APP_ID)
+        # G560_LIGHTS_DRY_RUN=1: no speakers, no audio changes, and a separate app id so a
+        # test build never hands off to (or disturbs) the copy you are really using.
+        self.dry_run = os.environ.get("G560_LIGHTS_DRY_RUN") == "1"
+        super().__init__(application_id=APP_ID + (".Dry" if self.dry_run else ""))
         self.background = background
         self.tab = tab
-        self.engine = Engine(on_status=self._on_status)
-        self.eqsvc = EqService(on_status=self._on_eq_status)
+        self.engine = Engine(device=NullSpeakers() if self.dry_run else None, on_status=self._on_status)
+        self.eqsvc = NullEqService() if self.dry_run else EqService(on_status=self._on_eq_status)
         self.win = None
         self._last_status = (True, "")
 
@@ -676,8 +739,6 @@ class App(Adw.Application):
             provider.load_from_data(CSS)
         except TypeError:
             provider.load_from_data(CSS, -1)
-        from gi.repository import Gdk
-
         Gtk.StyleContext.add_provider_for_display(
             Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 

@@ -74,6 +74,18 @@ class G560WriteTests(unittest.TestCase):
         for a, b in zip(stamps, stamps[1:]):
             self.assertGreaterEqual(b - a, 0.0095)
 
+    def test_breathe_accepts_one_color_or_one_per_light(self):
+        dev = device.G560()
+        dev.write_gap = 0
+        dev.set_breathe((1, 2, 3), 3000, 50)
+        same = list(self.writes)
+        self.assertEqual(len(same), 4)
+        self.assertTrue(all(w[6:9] == bytes([1, 2, 3]) for w in same))
+        self.writes.clear()
+        dev.invalidate()
+        dev.set_breathe([(1, 0, 0), (0, 2, 0), (0, 0, 3), (4, 4, 4)], 3000, 50)
+        self.assertEqual([w[6:9] for w in self.writes], [b"\x01\x00\x00", b"\x00\x02\x00", b"\x00\x00\x03", b"\x04\x04\x04"])
+
     def test_busy_speakers_are_retried(self):
         import errno
         calls = []

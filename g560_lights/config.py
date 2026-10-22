@@ -1,5 +1,6 @@
 """Settings model and persistence (~/.config/g560-lights/config.json)."""
 
+import dataclasses
 import json
 import os
 import tempfile
@@ -36,7 +37,8 @@ class State:
     effect: str = "static"
     colors: list = field(default_factory=lambda: [(0, 255, 255), (255, 0, 200)])
     zone_colors: list = field(default_factory=lambda: [(0, 255, 255)] * 4)
-    sync: bool = True
+    sync: bool = True  # editing all lights at once (the "All" button)
+    audio_blend: bool = False  # Music: shift to the second color when loud
     brightness: int = 100
     speed: int = 50
     power: bool = True
@@ -45,10 +47,9 @@ class State:
     eq_gains: list = field(default_factory=lambda: [0.0] * 10)
 
     def copy(self):
-        return State(
-            self.effect, list(self.colors), list(self.zone_colors), self.sync,
-            self.brightness, self.speed, self.power, list(self.recent),
-            self.eq_enabled, list(self.eq_gains),
+        return dataclasses.replace(
+            self, colors=list(self.colors), zone_colors=list(self.zone_colors),
+            recent=list(self.recent), eq_gains=list(self.eq_gains),
         )
 
     def to_dict(self):
@@ -57,6 +58,7 @@ class State:
             "colors": [to_hex(c) for c in self.colors],
             "zone_colors": [to_hex(c) for c in self.zone_colors],
             "sync": self.sync,
+            "audio_blend": self.audio_blend,
             "brightness": self.brightness,
             "speed": self.speed,
             "power": self.power,
@@ -81,7 +83,9 @@ class State:
         if data.get("effect") in BY_ID:
             s.effect = data["effect"]
         s.colors = colors("colors", 2) or s.colors
-        s.zone_colors = colors("zone_colors", 4) or s.zone_colors
+        # Older files only had one shared first color: use it for every light.
+        s.zone_colors = colors("zone_colors", 4) or [s.colors[0]] * 4
+        s.audio_blend = bool(data.get("audio_blend", False))
         s.sync = bool(data.get("sync", s.sync))
         s.power = bool(data.get("power", s.power))
         s.brightness = _clamp(data.get("brightness"), 1, 100, s.brightness)
