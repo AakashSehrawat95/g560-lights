@@ -188,11 +188,11 @@ class SpeakerPreview(Gtk.DrawingArea):
 
         # ring light halo: round, and behind everything else (including the pod lens)
         if lit_ring:
-            halo = cairo.RadialGradient(0.0, 0.2, 0.8, 0.0, 0.2, 1.75)
+            halo = cairo.RadialGradient(0.0, -0.2, 0.8, 0.0, -0.2, 1.75)
             halo.add_color_stop_rgba(0, *rgb01(ring), 0.55)
             halo.add_color_stop_rgba(1, *rgb01(ring), 0.0)
             cr.set_source(halo)
-            cr.arc(0.0, 0.2, 1.75, 0, 2 * math.pi)
+            cr.arc(0.0, -0.2, 1.75, 0, 2 * math.pi)
             cr.fill()
 
         # pod light: the lens pod behind the speaker
@@ -226,7 +226,7 @@ class SpeakerPreview(Gtk.DrawingArea):
         if lit_ring:
             cr.set_line_cap(cairo.LINE_CAP_ROUND)
             for width, alpha in ((0.34, 0.14), (0.18, 0.3), (0.075, 1.0)):  # bloom, then the bright core
-                cr.arc(0, 0, 1.06, math.radians(8), math.radians(172))
+                cr.arc(0, 0, 1.06, math.radians(188), math.radians(352))  # the top half, away from the small lens
                 cr.set_source_rgba(*rgb01(ring), alpha)
                 cr.set_line_width(width)
                 cr.stroke()
