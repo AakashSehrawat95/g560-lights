@@ -1,45 +1,43 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Everything is concentric on (64, 64), so the icon is symmetric left-to-right and centred. -->
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#2b2e38"/>
-      <stop offset="1" stop-color="#14151a"/>
+    <radialGradient id="badge" cx="50%" cy="38%" r="75%">
+      <stop offset="0" stop-color="#30333e"/>
+      <stop offset="1" stop-color="#121318"/>
+    </radialGradient>
+    <!-- rear light (magenta) at the top, front light (cyan) at the bottom -->
+    <linearGradient id="lights" x1="0" y1="14" x2="0" y2="114" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff4fd8"/>
+      <stop offset="0.5" stop-color="#8f7cf0"/>
+      <stop offset="1" stop-color="#00e5ff"/>
     </linearGradient>
-    <radialGradient id="face" cx="40%" cy="35%" r="75%">
-      <stop offset="0" stop-color="#43464f"/>
+    <radialGradient id="face" cx="50%" cy="42%" r="62%">
+      <stop offset="0" stop-color="#454852"/>
       <stop offset="1" stop-color="#17181d"/>
     </radialGradient>
-    <radialGradient id="halo" cx="50%" cy="50%" r="50%">
-      <stop offset="0.6" stop-color="#00e5ff" stop-opacity="0.5"/>
-      <stop offset="1" stop-color="#00e5ff" stop-opacity="0"/>
-    </radialGradient>
-    <pattern id="fabric" width="3" height="3" patternUnits="userSpaceOnUse">
+    <pattern id="fabric" x="2.5" y="2.5" width="3" height="3" patternUnits="userSpaceOnUse">
       <circle cx="1.5" cy="1.5" r="0.55" fill="#000" fill-opacity="0.55"/>
     </pattern>
-    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
-      <feGaussianBlur stdDeviation="3.2"/>
+    <filter id="bloom" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="4"/>
     </filter>
+    <clipPath id="disc"><circle cx="64" cy="64" r="60"/></clipPath>
   </defs>
 
-  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#bg)"/>
-  <rect x="4.5" y="4.5" width="119" height="119" rx="27.5" fill="none" stroke="#fff" stroke-opacity="0.08"/>
+  <circle cx="64" cy="64" r="60" fill="url(#badge)"/>
+  <g clip-path="url(#disc)">
+    <circle cx="64" cy="64" r="47" fill="none" stroke="url(#lights)" stroke-width="13" opacity="0.55" filter="url(#bloom)"/>
+  </g>
+  <circle cx="64" cy="64" r="59.5" fill="none" stroke="#fff" stroke-opacity="0.10"/>
 
-  <!-- rear light: the round lens pod behind the speaker -->
-  <circle cx="35" cy="34" r="14" fill="#ff4fd8" fill-opacity="0.75" filter="url(#glow)"/>
-  <circle cx="35" cy="34" r="11" fill="#1b1c22" stroke="#4a4d58" stroke-width="1.2"/>
-  <circle cx="35" cy="34" r="7.6" fill="#ff4fd8"/>
-  <circle cx="33" cy="32" r="2.6" fill="#fff" fill-opacity="0.45"/>
+  <!-- the light ring -->
+  <circle cx="64" cy="64" r="46" fill="none" stroke="url(#lights)" stroke-width="6.5"/>
+  <circle cx="64" cy="64" r="42.8" fill="#0f1014"/>
 
-  <!-- front light: a round halo and a glowing rim around the grille -->
-  <circle cx="58" cy="62" r="52" fill="url(#halo)"/>
-  <circle cx="58" cy="60" r="36.4" fill="#101114"/>
-  <path d="M93.3 66.2 A35.8 35.8 0 0 1 22.7 66.2" fill="none" stroke="#00e5ff" stroke-width="7" stroke-linecap="round" stroke-opacity="0.7" filter="url(#glow)"/>
-  <path d="M93.3 66.2 A35.8 35.8 0 0 1 22.7 66.2" fill="none" stroke="#bff7ff" stroke-width="2.6" stroke-linecap="round"/>
-  <circle cx="58" cy="60" r="35.8" fill="none" stroke="#00e5ff" stroke-opacity="0.35" stroke-width="1.2"/>
-
-  <!-- fabric grille -->
-  <circle cx="58" cy="60" r="34" fill="url(#face)"/>
-  <circle cx="58" cy="60" r="34" fill="url(#fabric)"/>
-  <circle cx="58" cy="60" r="33.2" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="1.6"/>
-  <path d="M36 44 A26 26 0 0 1 56 33" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="2.2" stroke-linecap="round"/>
-
+  <!-- the speaker: cloth grille, dead centre -->
+  <circle cx="64" cy="64" r="38.6" fill="url(#face)"/>
+  <circle cx="64" cy="64" r="38.6" fill="url(#fabric)"/>
+  <circle cx="64" cy="64" r="37.8" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="1.4"/>
+  <path d="M43 46 A30 30 0 0 1 85 46" fill="none" stroke="#fff" stroke-opacity="0.15" stroke-width="2.4" stroke-linecap="round"/>
+  <circle cx="64" cy="92" r="2.6" fill="none" stroke="#fff" stroke-opacity="0.35" stroke-width="1.2"/>
 </svg>
