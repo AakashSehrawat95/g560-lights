@@ -1,0 +1,2 @@
+# Let the logged-in user control the Logitech G560 speaker lights without root.
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="046d", ATTRS{idProduct}=="0a78", TAG+="uaccess"

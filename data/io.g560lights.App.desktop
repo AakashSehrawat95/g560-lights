@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=G560 Lights
+GenericName=Speaker lighting
+Comment=Control the lights of Logitech G560 speakers
+Exec=g560-lights
+Icon=g560-lights
+Terminal=false
+Categories=Settings;HardwareSettings;GTK;
+Keywords=logitech;g560;speaker;rgb;led;lights;
+StartupNotify=true
