@@ -5,22 +5,27 @@ from g560_lights import device
 
 class ReportTests(unittest.TestCase):
     def test_static_matches_g560_led(self):
-        # Byte-for-byte what g560-led sends for `solid 00ffff` to the left rear light.
+        # Byte-for-byte what g560-led sends for `solid 00ffff` to light 0 (the left small / front light).
         expected = bytes.fromhex("11ff043a" "00" "01" "00ffff" "0000000000" "000000000000")
-        got = device.build_report(device.ZONE_LEFT_REAR, device.MODE_STATIC, device.static_payload((0, 255, 255)))
+        got = device.build_report(device.ZONE_LEFT_FRONT, device.MODE_STATIC, device.static_payload((0, 255, 255)))
         self.assertEqual(got, expected)
 
     def test_breathe_matches_g560_led(self):
         # `breathe ff0000 10000 100`: color, rate 0x2710, 00, brightness 0x64, 00
         expected = bytes.fromhex("11ff043a" "03" "04" "ff0000" "2710" "00" "64" "00" "000000000000")
-        got = device.build_report(device.ZONE_RIGHT_FRONT, device.MODE_BREATHE,
+        got = device.build_report(device.ZONE_RIGHT_REAR, device.MODE_BREATHE,
                                   device.breathe_payload((255, 0, 0), 10000, 100))
         self.assertEqual(got, expected)
 
     def test_cycle_matches_g560_led(self):
         expected = bytes.fromhex("11ff043a" "02" "02" "0000000000" "1388" "32" "000000000000")
-        got = device.build_report(device.ZONE_LEFT_FRONT, device.MODE_CYCLE, device.cycle_payload(5000, 50))
+        got = device.build_report(device.ZONE_LEFT_REAR, device.MODE_CYCLE, device.cycle_payload(5000, 50))
         self.assertEqual(got, expected)
+
+    def test_zone_ids_and_names_match_the_hardware(self):
+        # ids as the speakers number them: 0, 1 = the small round lights (front), 2, 3 = the big ones (rear)
+        self.assertEqual((device.ZONE_LEFT_FRONT, device.ZONE_RIGHT_FRONT, device.ZONE_LEFT_REAR, device.ZONE_RIGHT_REAR), (0, 1, 2, 3))
+        self.assertEqual([device.ZONE_NAMES[z] for z in device.ZONES], ["Left front", "Right front", "Left rear", "Right rear"])
 
     def test_reports_are_always_20_bytes(self):
         for payload in (device.static_payload((1, 2, 3)), device.cycle_payload(1, 1),

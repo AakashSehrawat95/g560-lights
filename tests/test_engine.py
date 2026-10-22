@@ -63,6 +63,32 @@ class EngineTests(unittest.TestCase):
         self.assertLessEqual(sent, engine.FPS * 1.2 + 4, "frames sent: %d" % sent)
         self.assertGreaterEqual(sent, engine.FPS * 1.2 * 0.7)
 
+    def test_preview_shows_the_frame_that_was_sent_to_the_speakers(self):
+        state = config.State(effect="wave", speed=70)
+        mismatches, checks = [], []
+
+        def watch(eng, st):
+            time.sleep(0.5)
+            for _ in range(30):
+                preview = eng.preview(st)
+                recent = [f[1] for f in eng.device.frames[-3:]]  # the newest frames (another may land meanwhile)
+                checks.append(preview in recent)
+                time.sleep(0.037)
+
+        dev = FakeSpeakers()
+        eng = engine.Engine(device=dev)
+        eng.start(state)
+        watch(eng, state)
+        eng.stop()
+        self.assertTrue(all(checks), "the preview drifted from what the speakers were sent: %d/%d matched" % (sum(checks), len(checks)))
+
+    def test_preview_of_a_stopped_or_unconnected_engine_still_animates(self):
+        eng = engine.Engine(device=FakeSpeakers())  # never started: nothing has been sent
+        st = config.State(effect="wave", speed=70)
+        first = eng.preview(st)
+        time.sleep(0.2)
+        self.assertNotEqual(first, eng.preview(st))
+
     def test_breathe_is_not_restarted_on_every_slider_step(self):
         state = config.State(effect="breathe", zone_colors=[(1, 0, 0), (0, 2, 0), (0, 0, 3), (4, 4, 4)])
 

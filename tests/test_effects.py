@@ -39,8 +39,8 @@ class EffectTests(unittest.TestCase):
     def test_strobe_alternates_front_and_rear(self):
         s = config.State(effect="strobe", speed=1)
         frame = effects.render(s, 0.0)
-        self.assertNotEqual(frame[2], (0, 0, 0))   # front on
-        self.assertEqual(frame[0], (0, 0, 0))      # rear off
+        self.assertNotEqual(frame[2], (0, 0, 0))   # the big (rear) lights on first
+        self.assertEqual(frame[0], (0, 0, 0))      # the small (front) lights off
         later = effects.render(s, effects.flash_period(1) * 0.75)
         self.assertEqual(later[2], (0, 0, 0))
         self.assertNotEqual(later[0], (0, 0, 0))
@@ -56,6 +56,13 @@ class EffectTests(unittest.TestCase):
         p = effects.period_seconds(50)
         self.assertEqual(effects.render(s, 0)[0], (0, 0, 0))
         self.assertEqual(effects.render(s, p / 2)[0], (0, 255, 255))
+
+
+class WaveOrderTests(unittest.TestCase):
+    def test_wave_travels_left_to_right_across_the_real_layout(self):
+        # left big ring, left small light, right small light, right big ring = zone ids 2, 0, 1, 3
+        order = sorted(effects.ZONE_POSITION, key=effects.ZONE_POSITION.get)
+        self.assertEqual(order, [2, 0, 1, 3])
 
 
 class PerLightAndPhaseTests(unittest.TestCase):

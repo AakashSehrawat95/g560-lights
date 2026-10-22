@@ -157,19 +157,19 @@ def _fabric_tile():
 
 
 class SpeakerPreview(Gtk.DrawingArea):
-    """The two satellites and the subwoofer, drawn like the real G560, in the colors being sent now.
+    """The two satellites, drawn like the real G560, in the colors being sent to the speakers.
 
-    Each satellite is a round cloth grille: the front light is a round halo and rim glow around it,
-    and the rear light is the round lens behind it.
+    Each satellite is a round cloth grille. The REAR light is the big round glow and rim around the
+    grille; the FRONT light is the small round lens on the lower inner side, pointing inwards.
     """
 
-    POD = (-0.62, -0.78, 0.30)  # rear light lens: x, y, radius (unit coords, outer side is -x)
+    POD = (0.68, 0.84, 0.30)  # front light lens: x, y, radius (unit coords; +x is the inner side, +y is down)
     LABEL_GAP = 28  # px between the speakers' base and the LEFT / RIGHT labels
 
     def __init__(self, app_window):
         super().__init__()
         self.win = app_window
-        self.set_content_height(238)
+        self.set_content_height(196)
         self.set_hexpand(True)
         self.add_css_class("preview")
         self.set_draw_func(self._draw)
@@ -179,28 +179,28 @@ class SpeakerPreview(Gtk.DrawingArea):
         click.connect("released", self._clicked)
         self.add_controller(click)
 
-    def _satellite(self, cr, cx, base_y, r, mirror, front, rear, front_sel, rear_sel):
-        lit_front, lit_rear = max(front) > 8, max(rear) > 8
+    def _satellite(self, cr, cx, base_y, r, mirror, ring, pod, ring_sel, pod_sel):
+        lit_ring, lit_pod = max(ring) > 8, max(pod) > 8
         cr.save()
         cr.translate(cx, base_y - r)
         cr.scale(-r if mirror else r, r)
         px = 1.0 / r
 
-        # front light halo: round, and behind everything else (including the rear lens)
-        if lit_front:
+        # ring light halo: round, and behind everything else (including the pod lens)
+        if lit_ring:
             halo = cairo.RadialGradient(0.0, 0.2, 0.8, 0.0, 0.2, 1.75)
-            halo.add_color_stop_rgba(0, *rgb01(front), 0.55)
-            halo.add_color_stop_rgba(1, *rgb01(front), 0.0)
+            halo.add_color_stop_rgba(0, *rgb01(ring), 0.55)
+            halo.add_color_stop_rgba(1, *rgb01(ring), 0.0)
             cr.set_source(halo)
             cr.arc(0.0, 0.2, 1.75, 0, 2 * math.pi)
             cr.fill()
 
-        # rear light: the lens pod behind the speaker
+        # pod light: the lens pod behind the speaker
         ox, oy, orad = self.POD
-        if lit_rear:
+        if lit_pod:
             glow = cairo.RadialGradient(ox, oy, orad * 0.4, ox, oy, orad * 2.8)
-            glow.add_color_stop_rgba(0, *rgb01(rear), 0.65)
-            glow.add_color_stop_rgba(1, *rgb01(rear), 0.0)
+            glow.add_color_stop_rgba(0, *rgb01(pod), 0.65)
+            glow.add_color_stop_rgba(1, *rgb01(pod), 0.0)
             cr.set_source(glow)
             cr.arc(ox, oy, orad * 2.8, 0, 2 * math.pi)
             cr.fill()
@@ -211,9 +211,9 @@ class SpeakerPreview(Gtk.DrawingArea):
         cr.set_line_width(1.4 * px)
         cr.stroke()
         cr.arc(ox, oy, orad * 0.72, 0, 2 * math.pi)
-        cr.set_source_rgb(*rgb01(rear)) if lit_rear else cr.set_source_rgb(0.16, 0.17, 0.2)
+        cr.set_source_rgb(*rgb01(pod)) if lit_pod else cr.set_source_rgb(0.16, 0.17, 0.2)
         cr.fill()
-        if rear_sel:
+        if pod_sel:
             cr.arc(ox, oy, orad * 1.3, 0, 2 * math.pi)
             cr.set_source_rgba(1, 1, 1, 0.95)
             cr.set_line_width(2.2 * px)
@@ -223,15 +223,15 @@ class SpeakerPreview(Gtk.DrawingArea):
         cr.arc(0, 0, 1.07, 0, 2 * math.pi)  # the dark housing ring around the face
         cr.set_source_rgb(0.063, 0.067, 0.078)
         cr.fill()
-        if lit_front:
+        if lit_ring:
             cr.set_line_cap(cairo.LINE_CAP_ROUND)
             for width, alpha in ((0.34, 0.14), (0.18, 0.3), (0.075, 1.0)):  # bloom, then the bright core
                 cr.arc(0, 0, 1.06, math.radians(8), math.radians(172))
-                cr.set_source_rgba(*rgb01(front), alpha)
+                cr.set_source_rgba(*rgb01(ring), alpha)
                 cr.set_line_width(width)
                 cr.stroke()
             cr.arc(0, 0, 1.06, 0, 2 * math.pi)
-            cr.set_source_rgba(*rgb01(front), 0.35)
+            cr.set_source_rgba(*rgb01(ring), 0.35)
             cr.set_line_width(0.035)
             cr.stroke()
         else:
@@ -239,7 +239,7 @@ class SpeakerPreview(Gtk.DrawingArea):
             cr.set_source_rgba(1, 1, 1, 0.08)
             cr.set_line_width(0.04)
             cr.stroke()
-        if front_sel:
+        if ring_sel:
             cr.arc(0, 0, 1.2, 0, 2 * math.pi)
             cr.set_source_rgba(1, 1, 1, 0.95)
             cr.set_line_width(2.2 * px)
@@ -269,37 +269,6 @@ class SpeakerPreview(Gtk.DrawingArea):
         cr.stroke()
         cr.restore()
 
-    def _subwoofer(self, cr, cx, base_y, r):
-        w, h = r * 2.3, r * 3.3
-        x0, y0 = cx - w / 2, base_y - h
-        rad = 6
-        cr.new_sub_path()
-        cr.arc(x0 + w - rad, y0 + rad, rad, -math.pi / 2, 0)
-        cr.arc(x0 + w - rad, y0 + h - rad, rad, 0, math.pi / 2)
-        cr.arc(x0 + rad, y0 + h - rad, rad, math.pi / 2, math.pi)
-        cr.arc(x0 + rad, y0 + rad, rad, math.pi, 3 * math.pi / 2)
-        cr.close_path()
-        cr.set_source_rgb(0.063, 0.067, 0.078)
-        cr.fill_preserve()
-        cr.set_source_rgba(1, 1, 1, 0.07)
-        cr.set_line_width(1)
-        cr.stroke()
-        pr = r * 0.52
-        pcy = y0 + h * 0.25
-        cr.arc(cx, pcy, pr, 0, 2 * math.pi)
-        cr.set_source_rgb(0.03, 0.03, 0.04)
-        cr.fill_preserve()
-        cr.set_source_rgba(0.80, 0.82, 0.86, 0.75)  # the silver ring around the driver
-        cr.set_line_width(3)
-        cr.stroke()
-        cr.arc(cx, pcy, pr * 0.62, 0, 2 * math.pi)
-        cr.set_source_rgb(0.02, 0.02, 0.025)
-        cr.fill()
-        for fx in (x0 + 8, x0 + w - 20):
-            cr.rectangle(fx, base_y, 12, 5)
-            cr.set_source_rgb(0.03, 0.03, 0.04)
-            cr.fill()
-
     def _draw(self, _area, cr, w, h):
         colors = self.win.engine.preview(self.win.state)
         if not self.win.state.power:
@@ -307,21 +276,21 @@ class SpeakerPreview(Gtk.DrawingArea):
         editing = self.win.editing_zone()
         self.hit = {}
         r = min(53.0, w * 0.1)
-        sub_h = r * 3.3
-        base_y = 12 + sub_h
-        left_x, right_x = w * 0.2, w * 0.8
+        label_space = 44
+        cy = (h - label_space) / 2.0 + 4
+        base_y = cy + r
+        left_x, right_x = w * 0.3, w * 0.7
 
-        self._subwoofer(cr, w / 2, base_y, r)
         for side, cx in (("left", left_x), ("right", right_x)):
             mirror = side == "right"
-            front = ZONE_RIGHT_FRONT if mirror else ZONE_LEFT_FRONT
-            rear = ZONE_RIGHT_REAR if mirror else ZONE_LEFT_REAR
-            self._satellite(cr, cx, base_y, r, mirror, colors[front], colors[rear],
-                            editing == front, editing == rear)
+            ring_zone = ZONE_RIGHT_REAR if mirror else ZONE_LEFT_REAR  # the big light around the grille
+            pod_zone = ZONE_RIGHT_FRONT if mirror else ZONE_LEFT_FRONT  # the small round light
+            self._satellite(cr, cx, base_y, r, mirror, colors[ring_zone], colors[pod_zone],
+                            editing == ring_zone, editing == pod_zone)
             sx = -1 if mirror else 1
-            cy = base_y - r
-            self.hit[front] = [(cx, cy, 1.15 * r)]
-            self.hit[rear] = [(cx - sx * 0.62 * r, cy - 0.78 * r, 0.42 * r)]
+            self.hit[ring_zone] = [(cx, cy, 1.15 * r)]
+            px, py, pr = self.POD
+            self.hit[pod_zone] = [(cx + sx * px * r, cy + py * r, 1.4 * pr * r)]
 
         cr.set_source_rgba(1, 1, 1, 0.42)
         cr.select_font_face("sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
@@ -342,6 +311,9 @@ class SpeakerPreview(Gtk.DrawingArea):
 # Window
 # --------------------------------------------------------------------------
 class MainWindow(Adw.ApplicationWindow):
+    ZONE_HINT = "Set every light at once, or pick one (you can also click a light in the preview)."
+    ZONE_HINT_SHARED = "This second color is the same on every light."
+
     def __init__(self, app):
         super().__init__(application=app, title="G560 Lights")
         self.app = app
@@ -491,8 +463,8 @@ class MainWindow(Adw.ApplicationWindow):
         zone_row.add_css_class("linked")
         self.zone_btns = {}
         first = None
-        for key, label in (("all", "All"), (ZONE_LEFT_REAR, "Left rear"), (ZONE_RIGHT_REAR, "Right rear"),
-                           (ZONE_LEFT_FRONT, "Left front"), (ZONE_RIGHT_FRONT, "Right front")):
+        for key, label in (("all", "All"), (ZONE_LEFT_FRONT, "Left front"), (ZONE_LEFT_REAR, "Left rear"),
+                           (ZONE_RIGHT_FRONT, "Right front"), (ZONE_RIGHT_REAR, "Right rear")):
             btn = Gtk.ToggleButton(label=label)
             if first is None:
                 first = btn
@@ -502,10 +474,10 @@ class MainWindow(Adw.ApplicationWindow):
             self.zone_btns[key] = btn
             zone_row.append(btn)
         self.zone_box.append(zone_row)
-        hint = Gtk.Label(label="Set every light at once, or pick one (you can also click a light in the preview).")
-        hint.add_css_class("dim-label")
-        hint.add_css_class("caption")
-        self.zone_box.append(hint)
+        self.zone_hint = Gtk.Label(label=self.ZONE_HINT)
+        self.zone_hint.add_css_class("dim-label")
+        self.zone_hint.add_css_class("caption")
+        self.zone_box.append(self.zone_hint)
         inner.append(self.zone_box)
 
         row = Gtk.Box(spacing=18)
@@ -604,7 +576,11 @@ class MainWindow(Adw.ApplicationWindow):
         if self.slot >= (2 if two else 1):
             self.slot = 0
         self.slot_btns[self.slot].set_active(True)
-        self.zone_box.set_visible(info.per_zone and self.slot == 0)
+        # The light selector never hides, so switching between From and To (or Color and Loud color)
+        # cannot change the height of the window; it is just greyed out for the shared second color.
+        self.zone_box.set_visible(info.per_zone)
+        self.zone_box.set_sensitive(self.slot == 0)
+        self.zone_hint.set_label(self.ZONE_HINT if self.slot == 0 else self.ZONE_HINT_SHARED)
         self.zone_btns["all" if s.sync else self.zone].set_active(True)
         self.blend_row.set_visible(s.effect == "audio")
         self.blend_switch.set_active(s.audio_blend)

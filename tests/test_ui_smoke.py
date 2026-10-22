@@ -54,7 +54,8 @@ class UiSmoke(unittest.TestCase):
 
         out = self.run_app(script)
         self.assertEqual(out["one_light"].count((1, 2, 3)), 1)
-        self.assertEqual(out["one_light"][2], (1, 2, 3))
+        from g560_lights.device import ZONE_LEFT_FRONT
+        self.assertEqual(out["one_light"][ZONE_LEFT_FRONT], (1, 2, 3))  # exactly the light that was selected
         self.assertEqual(out["all_lights"], [(9, 9, 9)] * 4)
 
     def test_clicking_a_light_in_the_preview_selects_it(self):
@@ -93,7 +94,7 @@ class UiSmoke(unittest.TestCase):
             win.blend_switch.set_active(True)
             out["slots_blend"] = win.slot_box.get_visible()
             win.slot_btns[1].set_active(True)
-            out["zones_hidden_on_loud_slot"] = not win.zone_box.get_visible()
+            out["zones_greyed_not_hidden_on_loud_slot"] = win.zone_box.get_visible() and not win.zone_box.get_sensitive()
             win._on_pick((250, 0, 200))
             out["loud"] = s.colors[1]
 
@@ -102,7 +103,7 @@ class UiSmoke(unittest.TestCase):
         self.assertFalse(out["slots_single"])
         self.assertEqual(out["picked"], [(10, 200, 30)] * 4)
         self.assertTrue(out["slots_blend"])
-        self.assertTrue(out["zones_hidden_on_loud_slot"])
+        self.assertTrue(out["zones_greyed_not_hidden_on_loud_slot"])
         self.assertEqual(out["loud"], (250, 0, 200))
 
     def test_custom_eq_profiles_can_be_saved_selected_and_deleted(self):
@@ -186,6 +187,34 @@ class UiSmoke(unittest.TestCase):
         self.assertTrue(out["off"])
         self.assertTrue(out["follows_disk"])
         self.assertTrue(out["old_menu_item_gone"])
+
+    def test_from_and_to_do_not_resize_the_window(self):
+        from gi.repository import Gtk
+
+        def script(win, out):
+            win.chips["fade"].set_active(True)
+            measure = lambda: (win.get_height(), win.get_content().measure(Gtk.Orientation.VERTICAL, -1)[1],
+                               win.color_box.get_allocated_height())
+            win.slot_btns[0].set_active(True)
+            out["from"] = measure()
+            win.slot_btns[1].set_active(True)
+            out["to_state"] = (win.zone_box.get_visible(), win.zone_box.get_sensitive(), win.zone_hint.get_label())
+            out["to"] = measure()
+            win.slot_btns[0].set_active(True)
+            out["back"] = measure()
+
+        out = self.run_app(script)
+        self.assertEqual(out["from"], out["to"], "switching From -> To changed the layout size")
+        self.assertEqual(out["from"], out["back"], "switching To -> From changed the layout size")
+        self.assertEqual(out["to_state"][:2], (True, False))
+        self.assertIn("same on every light", out["to_state"][2])
+
+    def test_zone_buttons_use_the_real_names_in_order(self):
+        def script(win, out):
+            out["labels"] = [b.get_label() for b in win.zone_btns.values()]
+
+        out = self.run_app(script)
+        self.assertEqual(out["labels"], ["All", "Left front", "Left rear", "Right front", "Right rear"])
 
     def test_header_does_not_change_when_switching_tabs(self):
         from gi.repository import GLib

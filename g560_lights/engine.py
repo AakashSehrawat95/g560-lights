@@ -59,8 +59,9 @@ class Engine:
         self._audio_on = False
         self._status = (None, "")
         self._clock = effects.Clock()  # drives the speakers
-        self._preview_clock = effects.Clock()  # drives the on-screen preview
+        self._preview_clock = effects.Clock()  # drives the preview of effects that run on the speakers
         self._last_hardware_send = 0.0
+        self._frame = None  # (colors, time, effect) of the newest frame written to the speakers
 
     def start(self, state):
         self.update(state)
@@ -82,7 +83,16 @@ class Engine:
         self._wake.set()
 
     def preview(self, state):
-        """Colors for the on-screen preview of `state` right now."""
+        """Colors for the on-screen preview of `state` right now.
+
+        For effects the app animates, this is the very frame last sent to the speakers, so the
+        preview and the lights cannot drift apart (they used to run on separate clocks). Effects
+        that run on the speakers themselves, or nothing sent yet, fall back to a local clock.
+        """
+        frame = self._frame
+        if (frame and frame[2] == state.effect and state.power
+                and not effects.BY_ID[state.effect].hardware and time.monotonic() - frame[1] < 0.5):
+            return list(frame[0])
         self._preview_clock.advance(time.monotonic(), state.speed)
         return effects.render(state, self._preview_clock, self.audio.levels())
 
@@ -130,6 +140,8 @@ class Engine:
                     self._send_hardware_or_off(state, info)
                     if state.effect in ANIMATED_ON_SPEAKERS:
                         self._last_hardware_send = time.monotonic()
+                        # The speakers restart these from the beginning when re-sent: so does the preview.
+                        self._preview_clock = effects.Clock()
                 if software:
                     self._send_frame(state, frame_start)
                 self._report(True)
@@ -161,4 +173,6 @@ class Engine:
 
     def _send_frame(self, state, now):
         self._clock.advance(now, state.speed)
-        self.device.set_static(effects.render(state, self._clock, self.audio.levels()))
+        colors = effects.render(state, self._clock, self.audio.levels())
+        self.device.set_static(colors)
+        self._frame = (colors, time.monotonic(), state.effect)

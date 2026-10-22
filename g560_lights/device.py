@@ -16,13 +16,15 @@ VENDOR_ID = 0x046D
 PRODUCT_ID = 0x0A78
 
 # Zone ids as the speakers number them.
-ZONE_LEFT_REAR, ZONE_RIGHT_REAR, ZONE_LEFT_FRONT, ZONE_RIGHT_FRONT = 0, 1, 2, 3
-ZONES = (ZONE_LEFT_REAR, ZONE_RIGHT_REAR, ZONE_LEFT_FRONT, ZONE_RIGHT_FRONT)
+# Each speaker has a small round light (the FRONT light, on the lower inner side) and a big
+# light that rings the grille (the REAR light).
+ZONE_LEFT_FRONT, ZONE_RIGHT_FRONT, ZONE_LEFT_REAR, ZONE_RIGHT_REAR = 0, 1, 2, 3
+ZONES = (ZONE_LEFT_FRONT, ZONE_RIGHT_FRONT, ZONE_LEFT_REAR, ZONE_RIGHT_REAR)
 ZONE_NAMES = {
-    ZONE_LEFT_REAR: "Left rear",
-    ZONE_RIGHT_REAR: "Right rear",
     ZONE_LEFT_FRONT: "Left front",
     ZONE_RIGHT_FRONT: "Right front",
+    ZONE_LEFT_REAR: "Left rear",
+    ZONE_RIGHT_REAR: "Right rear",
 }
 
 MODE_STATIC, MODE_CYCLE, MODE_BREATHE = 0x01, 0x02, 0x04

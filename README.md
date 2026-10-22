@@ -13,7 +13,7 @@ wheel, brightness and speed sliders and a set of effects.
 | Spectrum | speakers | Cycles through every color |
 | Wave | app | A rainbow travelling across the speakers |
 | Gradient | app | Blends from a color (per light) to a second color |
-| Flash | app | Front and rear lights flash in turn (limited to 6 flashes a second) |
+| Flash | app | The big and small lights flash in turn (limited to 6 flashes a second) |
 | Candle | app | Warm, uneven flicker |
 | Music | app | Pulses with what you are playing, in the color you pick; optionally shifts to a second color when loud (PulseAudio / PipeWire-Pulse) |
 
@@ -21,7 +21,8 @@ wheel, brightness and speed sliders and a set of effects.
 
 **Per-light colors.** Every effect that has a color (Static, Breathe, Gradient, Flash,
 Candle, Music) can color the four lights separately: in the Color section pick **All** to set
-everything at once, or one light (Left/Right, rear/front). Clicking a light in the speaker
+everything at once, or one light (left or right, front or rear: the small round lights are the
+*front* ones and the big glow around each grille is the *rear* one). Clicking a light in the speaker
 preview selects it too.
 
 "Runs on speakers" effects keep going after you close the app. The others are

@@ -9,9 +9,10 @@ import colorsys
 import math
 from dataclasses import dataclass
 
-# Light positions along the speakers, rear-left to rear-right, for waves.
-# Index = zone id (0 L-rear, 1 R-rear, 2 L-front, 3 R-front).
-ZONE_POSITION = {0: 0.0, 2: 1.0, 3: 2.0, 1: 3.0}
+# Where each light sits from left to right, for waves: the left speaker's big ring, then its
+# small light (lower inner side), then the right speaker's small light, then its big ring.
+# Index = zone id (0 L-front small, 1 R-front small, 2 L-rear big, 3 R-rear big).
+ZONE_POSITION = {2: 0.0, 0: 1.0, 1: 2.0, 3: 3.0}
 
 MAX_FLASH_HZ = 6.0  # keep strobing well under the 15-25 Hz risky range
 
@@ -34,7 +35,7 @@ EFFECTS = [
     EffectInfo("cycle", "Spectrum", True, 0, "Speed", "Cycles through every color. Runs on the speakers themselves."),
     EffectInfo("wave", "Wave", False, 0, "Speed", "A rainbow that travels across the speakers."),
     EffectInfo("fade", "Gradient", False, 2, "Speed", "Blends smoothly back and forth between two colors.", per_zone=True, color_labels=("From", "To")),
-    EffectInfo("strobe", "Flash", False, 1, "Speed", "Front and rear lights flash in turn. Flashing lights: take care if you are sensitive to them.", per_zone=True),
+    EffectInfo("strobe", "Flash", False, 1, "Speed", "The big and small lights flash in turn. Flashing lights: take care if you are sensitive to them.", per_zone=True),
     EffectInfo("candle", "Candle", False, 1, "Flicker", "An uneven flame flicker in your color.", per_zone=True),
     EffectInfo("audio", "Music", False, 1, "Sensitivity", "The lights pulse with the sound you are playing, in the color you pick.", per_zone=True,
                color_labels=("Color", "Loud color")),
@@ -155,8 +156,8 @@ def render(state, clock, audio=(0.0, 0.0, 0.0, 0.0)):
             for z in range(4)
         ]
     elif eid == "strobe":
-        front_on = (clock.flashes % 1.0) < 0.5
-        out = [mine[z] if (front_on if z in (2, 3) else not front_on) else (0, 0, 0) for z in range(4)]
+        big_on = (clock.flashes % 1.0) < 0.5
+        out = [mine[z] if (big_on if z in (2, 3) else not big_on) else (0, 0, 0) for z in range(4)]
     elif eid == "candle":
         out = []
         for z in range(4):
