@@ -207,7 +207,10 @@ class UiSmoke(unittest.TestCase):
                 out[name] = win.zone if not win.state.sync else None
             # the lobe outline really reaches 1.37 radii out and starts/ends on the circle
             import math
-            radii = [math.hypot(x, y) for x, y in SpeakerPreview.LOBE]
+            radii = [math.hypot(x, y) for x, y in SpeakerPreview.SUPPORT]
+            lx, ly, lr = SpeakerPreview.LIGHT
+            out["light_rests_on_curve"] = round(min(math.hypot(x - lx, y - ly) for x, y in SpeakerPreview.SUPPORT), 2)
+            out["light_radius"] = lr
             out["lobe_far"] = round(max(radii), 2)
             out["lobe_ends_on_circle"] = abs(radii[0] - 1.0) < 0.05 and abs(radii[-1] - 1.0) < 0.05
 
@@ -219,7 +222,9 @@ class UiSmoke(unittest.TestCase):
         self.assertEqual(out["right grille"], device.ZONE_RIGHT_REAR)
         self.assertIsNone(out["empty corner"])
         self.assertIsNone(out["gap beside the lobe"])
-        self.assertEqual(out["lobe_far"], 1.37)
+        self.assertAlmostEqual(out["lobe_far"], 1.35, delta=0.04)
+        # the round light sits ON the curve: the nearest the curve gets to its centre is its own radius
+        self.assertAlmostEqual(out["light_rests_on_curve"], out["light_radius"], delta=0.02)
         self.assertTrue(out["lobe_ends_on_circle"])
 
     def test_from_and_to_do_not_resize_the_window(self):

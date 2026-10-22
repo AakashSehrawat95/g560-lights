@@ -156,28 +156,33 @@ def _fabric_tile():
     return pattern
 
 
+def _sample_cubic(p0, p1, p2, p3, n):
+    """n+1 points along a cubic Bezier curve (for hit-testing the shape)."""
+    out = []
+    for i in range(n + 1):
+        t = i / n
+        u = 1 - t
+        out.append(tuple(u**3 * p0[k] + 3 * u * u * t * p1[k] + 3 * u * t * t * p2[k] + t**3 * p3[k] for k in (0, 1)))
+    return out
+
+
 class SpeakerPreview(Gtk.DrawingArea):
     """The two satellites, drawn like the real G560, in the colors being sent to the speakers.
 
     Each satellite is a round cloth grille. The REAR light is the big round glow and rim around the
-    grille; the FRONT light is the small lobe growing out of it on the lower inner side.
+    grille; the FRONT light is the small round light resting in a curved support on the lower inner side.
     """
 
-    # The small (front) light is a lobe that grows out of the big circle on its lower inner side. This
-    # outline was drawn by hand (averaged from the user's sketch of both speakers) in units of the big
-    # circle's radius, for the left speaker: +x is towards the middle, +y is down. It starts on the
-    # circle about 11 degrees above 3 o'clock, swells to 1.37 radii at 34 degrees below it, and rejoins
-    # the circle at the very bottom. The right speaker is its mirror image.
-    LOBE_OUTLINE = 0.10  # thickness of the lit edge, in big-circle radii, measured inwards from the outline
-    LOBE = [
-        (0.982, -0.190), (1.016, -0.109), (1.041, -0.025), (1.061, 0.061),
-        (1.081, 0.146), (1.103, 0.232), (1.127, 0.316), (1.152, 0.400),
-        (1.166, 0.487), (1.171, 0.575), (1.167, 0.662), (1.146, 0.747),
-        (1.094, 0.817), (1.026, 0.873), (0.947, 0.912), (0.864, 0.939),
-        (0.778, 0.960), (0.692, 0.976), (0.605, 0.986), (0.517, 0.993),
-        (0.429, 0.999), (0.342, 1.008), (0.255, 1.017), (0.167, 1.018),
-        (0.079, 1.013), (-0.007, 1.000),
-    ]
+    # The small (front) light is a round light resting in a support that grows out of the big circle on
+    # its lower inner side. In units of the big circle's radius, for the left speaker (+x is towards the
+    # middle, +y is down): the support is ONE smooth cubic curve (4 control points) that leaves the
+    # circle about 11 degrees above 3 o'clock, bulges out to about 1.35 radii at 38 degrees below it and
+    # rejoins the circle at the bottom, loosely following the user's sketch. The light is a circle
+    # seated on that curve, touching it at its farthest point, with over half of it outside the big
+    # circle. The right speaker is the mirror image.
+    SUPPORT_CURVE = ((0.982, -0.190), (1.411, 0.822), (1.082, 1.165), (-0.007, 1.000))
+    SUPPORT = _sample_cubic(*SUPPORT_CURVE, 24)  # the same curve as points, for clicks
+    LIGHT = (0.832, 0.647, 0.30)  # x, y, radius of the round light
     LABEL_GAP = 28  # px between the speakers' base and the LEFT / RIGHT labels
 
     def __init__(self, app_window):
@@ -194,14 +199,10 @@ class SpeakerPreview(Gtk.DrawingArea):
         self.add_controller(click)
 
     @classmethod
-    def _lobe_path(cls, cr):
-        pts = cls.LOBE
-        n = len(pts)
-        cr.move_to(*pts[0])
-        for i in range(n - 1):  # Catmull-Rom spline as Bezier segments
-            p0, p1, p2, p3 = pts[max(i - 1, 0)], pts[i], pts[i + 1], pts[min(i + 2, n - 1)]
-            cr.curve_to(p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6,
-                        p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1])
+    def _support_path(cls, cr):
+        p0, p1, p2, p3 = cls.SUPPORT_CURVE
+        cr.move_to(*p0)
+        cr.curve_to(*p1, *p2, *p3)
         cr.close_path()  # the straight edge back is inside the big circle, hidden behind it
 
     def _satellite(self, cr, cx, base_y, r, mirror, ring, pod, ring_sel, pod_sel):
@@ -220,39 +221,36 @@ class SpeakerPreview(Gtk.DrawingArea):
             cr.arc(-0.1, -0.1, 1.75, 0, 2 * math.pi)
             cr.fill()
 
-        # the small (front) light: a lobe growing out of the big circle on its lower inner side
-        if lit_pod:
-            cx0, cy0 = 0.95, 0.62
-            glow = cairo.RadialGradient(cx0, cy0, 0.15, cx0, cy0, 1.0)
-            glow.add_color_stop_rgba(0, *rgb01(pod), 0.6)
+        # the small (front) light: a round light resting in a curved support
+        lx, ly, lr = self.LIGHT
+        if lit_pod:  # the light's own soft glow; nothing glows along any outline
+            glow = cairo.RadialGradient(lx, ly, lr * 0.6, lx, ly, lr * 3.2)
+            glow.add_color_stop_rgba(0, *rgb01(pod), 0.55)
             glow.add_color_stop_rgba(1, *rgb01(pod), 0.0)
             cr.set_source(glow)
-            cr.arc(cx0, cy0, 1.0, 0, 2 * math.pi)
+            cr.arc(lx, ly, lr * 3.2, 0, 2 * math.pi)
             cr.fill()
-            cr.set_line_join(cairo.LINE_JOIN_ROUND)
-            for width, alpha in ((0.34, 0.07), (0.20, 0.12), (0.09, 0.22)):  # soft bloom around the edge
-                self._lobe_path(cr)
-                cr.set_source_rgba(*rgb01(pod), alpha)
-                cr.set_line_width(width)
-                cr.stroke()
-        self._lobe_path(cr)
-        cr.set_source_rgb(*rgb01(pod)) if lit_pod else cr.set_source_rgb(0.15, 0.16, 0.19)
-        cr.fill()
-        # A thick outline, drawn inwards (clipped to the shape) so the silhouette stays exactly as sketched.
-        cr.save()
-        self._lobe_path(cr)
-        cr.clip()
-        self._lobe_path(cr)
-        if lit_pod:
-            cr.set_source_rgb(*[c + (1.0 - c) * 0.45 for c in rgb01(pod)])  # the light's colour, brightened
-        else:
-            cr.set_source_rgba(1, 1, 1, 0.14)
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
-        cr.set_line_width(2 * self.LOBE_OUTLINE)
+        self._support_path(cr)  # the support: dark, with an outline that is always black
+        cr.set_source_rgb(0.125, 0.13, 0.15)
+        cr.fill_preserve()
+        cr.set_source_rgb(0, 0, 0)
+        cr.set_line_width(1.8 * px)
         cr.stroke()
-        cr.restore()
+        cr.arc(lx, ly, lr, 0, 2 * math.pi)  # the light itself
+        if lit_pod:
+            shine = cairo.RadialGradient(lx - 0.09, ly - 0.09, 0.02, lx, ly, lr)
+            shine.add_color_stop_rgb(0, *[c + (1.0 - c) * 0.35 for c in rgb01(pod)])
+            shine.add_color_stop_rgb(1, *rgb01(pod))
+            cr.set_source(shine)
+        else:
+            cr.set_source_rgb(0.16, 0.17, 0.2)
+        cr.fill_preserve()
+        cr.set_source_rgb(0, 0, 0)
+        cr.set_line_width(1.6 * px)
+        cr.stroke()
         if pod_sel:
-            self._lobe_path(cr)
+            cr.arc(lx, ly, lr * 1.3, 0, 2 * math.pi)
             cr.set_source_rgba(1, 1, 1, 0.95)
             cr.set_line_width(2.2 * px)
             cr.stroke()
@@ -264,7 +262,7 @@ class SpeakerPreview(Gtk.DrawingArea):
         if lit_ring:
             cr.set_line_cap(cairo.LINE_CAP_ROUND)
             for width, alpha in ((0.34, 0.14), (0.18, 0.3), (0.075, 1.0)):  # bloom, then the bright core
-                cr.arc(0, 0, 1.06, math.radians(90), math.radians(349))  # all but the lower inner quarter, where the small light's lobe grows out
+                cr.arc(0, 0, 1.06, math.radians(90), math.radians(349))  # all but the lower inner quarter, where the small light's support grows out
                 cr.set_source_rgba(*rgb01(ring), alpha)
                 cr.set_line_width(width)
                 cr.stroke()
@@ -326,7 +324,7 @@ class SpeakerPreview(Gtk.DrawingArea):
             self._satellite(cr, cx, base_y, r, mirror, colors[ring_zone], colors[pod_zone],
                             editing == ring_zone, editing == pod_zone)
             sx = -1 if mirror else 1
-            outline = [(cx + sx * x * r, cy + y * r) for x, y in self.LOBE]
+            outline = [(cx + sx * x * r, cy + y * r) for x, y in self.SUPPORT]
             self.hit[pod_zone] = lambda x, y, o=outline, c=(cx, cy), rr=r: (
                 math.hypot(x - c[0], y - c[1]) > 0.98 * rr and self._inside(o, x, y))
             self.hit[ring_zone] = lambda x, y, c=(cx, cy), rr=r: math.hypot(x - c[0], y - c[1]) <= 1.14 * rr
@@ -352,7 +350,7 @@ class SpeakerPreview(Gtk.DrawingArea):
         return inside
 
     def _clicked(self, _gesture, _n, x, y):
-        # the small lights (lobes) first: they only overlap the big circle's area outside its edge
+        # the small lights (supports) first: they only overlap the big circle's area outside its edge
         ordered = sorted(self.hit.items(), key=lambda kv: kv[0] not in (ZONE_LEFT_FRONT, ZONE_RIGHT_FRONT))
         for zone, test in ordered:
             if test(x, y):
