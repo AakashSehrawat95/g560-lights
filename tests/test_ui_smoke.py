@@ -197,9 +197,10 @@ class UiSmoke(unittest.TestCase):
             w, h = prev.get_width(), prev.get_height()
             r = min(53.0, w * 0.1)
             cy = (h - 44) / 2.0 + 4
-            spots = {"left lobe": (w * 0.3 + 1.1 * r, cy + 0.35 * r), "left grille": (w * 0.3, cy),
-                     "right lobe": (w * 0.7 - 1.1 * r, cy + 0.35 * r), "right grille": (w * 0.7, cy),
-                     "empty corner": (w * 0.05, cy - 0.9 * r), "gap beside the lobe": (w * 0.3 + 1.3 * r, cy - 0.5 * r)}
+            lx, rx = w * 0.27, w * 0.73
+            spots = {"left lobe": (lx + 1.1 * r, cy + 0.35 * r), "left grille": (lx, cy),
+                     "right lobe": (rx - 1.1 * r, cy + 0.35 * r), "right grille": (rx, cy),
+                     "empty corner": (w * 0.05, cy - 0.9 * r), "gap beside the lobe": (lx + 1.3 * r, cy - 0.5 * r)}
             for name, (x, y) in spots.items():
                 win.state.sync = True
                 win.zone = -1
@@ -208,9 +209,7 @@ class UiSmoke(unittest.TestCase):
             # the lobe outline really reaches 1.37 radii out and starts/ends on the circle
             import math
             radii = [math.hypot(x, y) for x, y in SpeakerPreview.SUPPORT]
-            lx, ly, lr = SpeakerPreview.LIGHT
-            out["light_rests_on_curve"] = round(min(math.hypot(x - lx, y - ly) for x, y in SpeakerPreview.SUPPORT), 2)
-            out["light_radius"] = lr
+
             out["lobe_far"] = round(max(radii), 2)
             out["lobe_ends_on_circle"] = abs(radii[0] - 1.0) < 0.05 and abs(radii[-1] - 1.0) < 0.05
 
@@ -223,9 +222,57 @@ class UiSmoke(unittest.TestCase):
         self.assertIsNone(out["empty corner"])
         self.assertIsNone(out["gap beside the lobe"])
         self.assertAlmostEqual(out["lobe_far"], 1.35, delta=0.04)
-        # the round light sits ON the curve: the nearest the curve gets to its centre is its own radius
-        self.assertAlmostEqual(out["light_rests_on_curve"], out["light_radius"], delta=0.02)
+
         self.assertTrue(out["lobe_ends_on_circle"])
+
+    def test_the_small_light_is_an_arch_of_even_thickness_with_no_circle_inside(self):
+        def script(win, out):
+            import math
+            import cairo
+            from g560_lights.app import SpeakerPreview as SP
+
+            r, cx, base = 80.0, 150.0, 250.0  # draw one speaker big, on a black canvas, with only the small light lit
+            surf = cairo.ImageSurface(cairo.FORMAT_ARGB32, 400, 400)
+            cr = cairo.Context(surf)
+            cr.set_source_rgb(0, 0, 0)
+            cr.paint()
+            win.preview._satellite(cr, cx, base, r, False, (0, 0, 0), (0, 255, 0), False, False)
+            surf.flush()
+            data, stride = surf.get_data(), surf.get_stride()
+
+            def bright_green(x, y):
+                if not (0 <= x < 400 and 0 <= y < 400):
+                    return False
+                i = int(y) * stride + int(x) * 4  # BGRA
+                return data[i + 1] > 200 and data[i] < 90 and data[i + 2] < 90
+
+            p0, p1, p2, p3 = SP.SUPPORT_CURVE
+            centre = (cx, base - r)
+            widths = []
+            for k in range(8):
+                t = 0.30 + 0.07 * k  # the middle of the arch, clear of the big circle
+                u = 1 - t
+                x = u**3 * p0[0] + 3*u*u*t * p1[0] + 3*u*t*t * p2[0] + t**3 * p3[0]
+                y = u**3 * p0[1] + 3*u*u*t * p1[1] + 3*u*t*t * p2[1] + t**3 * p3[1]
+                dx = 3*u*u * (p1[0]-p0[0]) + 6*u*t * (p2[0]-p1[0]) + 3*t*t * (p3[0]-p2[0])
+                dy = 3*u*u * (p1[1]-p0[1]) + 6*u*t * (p2[1]-p1[1]) + 3*t*t * (p3[1]-p2[1])
+                n = math.hypot(dx, dy)
+                nx, ny = -dy / n, dx / n
+                px, py = centre[0] + x * r, centre[1] + y * r
+                count = sum(1 for i in range(-160, 161) if bright_green(px + nx * i * 0.1, py + ny * i * 0.1))
+                widths.append(count * 0.1)
+            out["widths"] = widths
+            out["expected"] = SP.ARCH_WIDTH * r
+            lx, ly = centre[0] + 0.832 * r, centre[1] + 0.647 * r  # where the old small circle used to be
+            out["old_circle_spot_is_lit"] = bright_green(lx, ly)
+            out["lit_pixels_inside_the_arch"] = sum(1 for yy in range(int(ly - 12), int(ly + 12)) for xx in range(int(lx - 12), int(lx + 12)) if bright_green(xx, yy))
+
+        out = self.run_app(script)
+        widths, expected = out["widths"], out["expected"]
+        self.assertGreater(min(widths), 0, "the arch was not found along the curve: %s" % widths)
+        self.assertLess(max(widths) - min(widths), 1.2, "the arch changes thickness: %s" % [round(v, 1) for v in widths])
+        self.assertAlmostEqual(sum(widths) / len(widths), expected, delta=0.2 * expected)
+        self.assertFalse(out["old_circle_spot_is_lit"], "there is still a filled circle inside the arch")
 
     def test_from_and_to_do_not_resize_the_window(self):
         from gi.repository import Gtk
