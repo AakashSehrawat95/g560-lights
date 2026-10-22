@@ -160,6 +160,33 @@ class UiSmoke(unittest.TestCase):
         self.assertTrue(out["eq_off"])
         self.assertTrue(out["notice"])
 
+    def test_start_at_login_is_a_toggle_on_the_settings_tab(self):
+        from g560_lights import autostart
+
+        def script(win, out):
+            page = win.settings_page
+            win.show_tab("settings")
+            out["tab"] = win.stack.get_visible_child_name()
+            out["starts_off"] = (not page.login_switch.get_active(), not autostart.is_enabled())
+            page.login_switch.set_active(True)
+            out["on"] = (autostart.is_enabled(), "--background" in open(autostart.path()).read())
+            page.login_switch.set_active(False)
+            out["off"] = not autostart.is_enabled()
+            # changed outside the app (e.g. deleted by hand): the switch follows when the tab is shown again
+            autostart.set_enabled(True)
+            page.refresh()
+            out["follows_disk"] = page.login_switch.get_active()
+            autostart.set_enabled(False)
+            out["old_menu_item_gone"] = win.app.lookup_action("autostart") is None
+
+        out = self.run_app(script)
+        self.assertEqual(out["tab"], "settings")
+        self.assertEqual(out["starts_off"], (True, True))
+        self.assertEqual(out["on"], (True, True))
+        self.assertTrue(out["off"])
+        self.assertTrue(out["follows_disk"])
+        self.assertTrue(out["old_menu_item_gone"])
+
     def test_window_grows_to_fit_a_taller_page(self):
         from gi.repository import GLib
 

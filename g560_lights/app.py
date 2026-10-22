@@ -17,6 +17,7 @@ from .device import ZONE_LEFT_FRONT, ZONE_LEFT_REAR, ZONE_NAMES, ZONE_RIGHT_FRON
 from .engine import Engine, NullSpeakers  # noqa: E402
 from .eq import EqService, NullEqService  # noqa: E402
 from .eq_page import EqPage  # noqa: E402
+from .settings_page import SettingsPage  # noqa: E402
 
 PRESETS = [
     "ff0000", "ff6a00", "ffb000", "ffee00", "7cff00", "00ff4c", "00ffc8",
@@ -30,16 +31,6 @@ CSS = b"""
 .status-card { background: alpha(@warning_bg_color, 0.25); border-radius: 12px; padding: 10px 14px; }
 .value-label { min-width: 34px; }
 """
-
-AUTOSTART_FILE = os.path.expanduser("~/.config/autostart/g560-lights.desktop")
-AUTOSTART_TEXT = """[Desktop Entry]
-Type=Application
-Name=G560 Lights
-Exec=g560-lights --background
-Icon=g560-lights
-X-GNOME-Autostart-enabled=true
-"""
-
 
 def rgb01(color):
     return tuple(c / 255.0 for c in color)
@@ -378,7 +369,6 @@ class MainWindow(Adw.ApplicationWindow):
         self.power_btn.connect("toggled", self._on_power)
         header.pack_start(self.power_btn)
         menu = Gio.Menu()
-        menu.append("Start at login", "app.autostart")
         menu.append("About G560 Lights", "app.about")
         menu.append("Quit", "app.quit")
         header.pack_end(Gtk.MenuButton(icon_name="open-menu-symbolic", menu_model=menu))
@@ -406,6 +396,8 @@ class MainWindow(Adw.ApplicationWindow):
         self.stack = Adw.ViewStack(vexpand=True)
         self.stack.add_titled(self._scrolled(page), "lights", "Lights").set_icon_name("display-brightness-symbolic")
         self.stack.add_titled(self._scrolled(self.eq_page), "eq", "Equalizer").set_icon_name("audio-volume-high-symbolic")
+        self.settings_page = SettingsPage(on_about=lambda: self.app.activate_action("about", None))
+        self.stack.add_titled(self._scrolled(self.settings_page), "settings", "Settings").set_icon_name("emblem-system-symbolic")
         self.stack.connect("notify::visible-child-name", self._on_tab)
         header.set_title_widget(Adw.ViewSwitcherTitle(stack=self.stack, title="G560"))
 
@@ -432,7 +424,7 @@ class MainWindow(Adw.ApplicationWindow):
             propagate_natural_height=True, max_content_height=self._screen_limit())
 
     def show_tab(self, name):
-        if name in ("lights", "eq"):
+        if name in ("lights", "eq", "settings"):
             self.stack.set_visible_child_name(name)
 
     def _on_tab(self, *_):
@@ -853,9 +845,6 @@ class App(Adw.Application):
             action = Gio.SimpleAction.new(name, None)
             action.connect("activate", handler)
             self.add_action(action)
-        auto = Gio.SimpleAction.new_stateful("autostart", None, GLib.Variant.new_boolean(os.path.exists(AUTOSTART_FILE)))
-        auto.connect("change-state", self._toggle_autostart)
-        self.add_action(auto)
         self.hold()
 
     def do_activate(self):
@@ -882,18 +871,6 @@ class App(Adw.Application):
         self.engine.stop()
         self.eqsvc.stop()
         Adw.Application.do_shutdown(self)
-
-    def _toggle_autostart(self, action, value):
-        action.set_state(value)
-        try:
-            if value.get_boolean():
-                os.makedirs(os.path.dirname(AUTOSTART_FILE), exist_ok=True)
-                with open(AUTOSTART_FILE, "w") as f:
-                    f.write(AUTOSTART_TEXT)
-            elif os.path.exists(AUTOSTART_FILE):
-                os.unlink(AUTOSTART_FILE)
-        except OSError as e:
-            print("Could not change autostart: %s" % e, file=sys.stderr)
 
     def _about(self, *_):
         dialog = Gtk.AboutDialog(

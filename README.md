@@ -27,8 +27,9 @@ preview selects it too.
 "Runs on speakers" effects keep going after you close the app. The others are
 animated by the app, which keeps running in the background when you close its
 window (open it again from the app menu; **Quit** is in the ☰ menu). Settings are
-saved in `~/.config/g560-lights/config.json`. **Start at login** (☰ menu) restores
-your lights after a reboot, since the speakers forget them when powered off.
+saved in `~/.config/g560-lights/config.json`. The **Settings** tab has a **Start at login**
+switch: the app then opens hidden at login and restores your lights and equalizer, since the
+speakers forget their lights when powered off.
 
 ## Equalizer
 
@@ -92,7 +93,7 @@ g560-lights breathe ff0000 [rate_ms [brightness]]
 g560-lights cycle [rate_ms [brightness]]
 g560-lights off
 g560-lights --background     # start hidden and apply saved settings
-g560-lights --tab eq         # open on the Equalizer tab
+g560-lights --tab eq         # open on a tab: lights, eq or settings
 g560-lights eq-reset         # emergency: remove the equalizer, put all sound back on the speakers
 ```
 

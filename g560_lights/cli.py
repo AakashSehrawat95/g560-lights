@@ -10,7 +10,7 @@ HELP = """G560 Lights %s: control the lights of Logitech G560 speakers
 Usage:
   g560-lights                          Open the app
   g560-lights --background             Start hidden and apply saved settings
-  g560-lights --tab lights|eq          Open on the Lights or Equalizer tab
+  g560-lights --tab lights|eq|settings    Open on that tab
   g560-lights solid RRGGBB             One steady color
   g560-lights breathe RRGGBB [rate [brightness]]
   g560-lights cycle [rate [brightness]]
