@@ -270,7 +270,8 @@ class UiSmoke(unittest.TestCase):
         out = self.run_app(script)
         widths, expected = out["widths"], out["expected"]
         self.assertGreater(min(widths), 0, "the arch was not found along the curve: %s" % widths)
-        self.assertLess(max(widths) - min(widths), 1.2, "the arch changes thickness: %s" % [round(v, 1) for v in widths])
+        # measured across a diagonal line on a pixel grid, so allow ~12% wobble; a tapering line would differ by far more
+        self.assertLess(max(widths) - min(widths), 0.12 * expected, "the arch changes thickness: %s" % [round(v, 1) for v in widths])
         self.assertAlmostEqual(sum(widths) / len(widths), expected, delta=0.2 * expected)
         self.assertFalse(out["old_circle_spot_is_lit"], "there is still a filled circle inside the arch")
 
