@@ -198,8 +198,8 @@ class UiSmoke(unittest.TestCase):
             r = min(53.0, w * 0.1)
             cy = (h - 44) / 2.0 + 4
             lx, rx = w * 0.27, w * 0.73
-            spots = {"left lobe": (lx + 1.02 * r, cy + 0.45 * r), "left grille": (lx, cy),
-                     "right lobe": (rx - 1.02 * r, cy + 0.45 * r), "right grille": (rx, cy),
+            spots = {"left lobe": (lx + 1.1 * r, cy + 0.35 * r), "left grille": (lx, cy),
+                     "right lobe": (rx - 1.1 * r, cy + 0.35 * r), "right grille": (rx, cy),
                      "empty corner": (w * 0.05, cy - 0.9 * r), "gap beside the lobe": (lx + 1.3 * r, cy - 0.5 * r)}
             for name, (x, y) in spots.items():
                 win.state.sync = True
@@ -221,11 +221,11 @@ class UiSmoke(unittest.TestCase):
         self.assertEqual(out["right grille"], device.ZONE_RIGHT_REAR)
         self.assertIsNone(out["empty corner"])
         self.assertIsNone(out["gap beside the lobe"])
-        self.assertAlmostEqual(out["lobe_far"], 1.40, delta=0.04)  # the rounded tip of the cone
+        self.assertAlmostEqual(out["lobe_far"], 1.35, delta=0.04)
 
         self.assertTrue(out["lobe_ends_on_circle"])
 
-    def test_the_small_light_is_one_bold_line_of_even_thickness_with_no_circle_inside(self):
+    def test_the_small_light_is_an_arch_of_even_thickness_with_no_circle_inside(self):
         def script(win, out):
             import math
             import cairo
@@ -246,38 +246,34 @@ class UiSmoke(unittest.TestCase):
                 i = int(y) * stride + int(x) * 4  # BGRA
                 return data[i + 1] > 200 and data[i] < 90 and data[i + 2] < 90
 
-            g = SP.CONE
+            p0, p1, p2, p3 = SP.SUPPORT_CURVE
             centre = (cx, base - r)
-
-            def width_at(point, normal):
-                px, py = centre[0] + point[0] * r, centre[1] + point[1] * r
-                return 0.1 * sum(1 for i in range(-200, 201) if bright_green(px + normal[0] * i * 0.1, py + normal[1] * i * 0.1))
-
-            samples = {}
-            for name, p, q in (("edge 1", g["A"], g["A2"]), ("edge 2", g["B"], g["B2"])):  # the two straight edges
-                dx, dy = q[0] - p[0], q[1] - p[1]
+            widths = []
+            for k in range(8):
+                t = 0.30 + 0.07 * k  # the middle of the arch, clear of the big circle
+                u = 1 - t
+                x = u**3 * p0[0] + 3*u*u*t * p1[0] + 3*u*t*t * p2[0] + t**3 * p3[0]
+                y = u**3 * p0[1] + 3*u*u*t * p1[1] + 3*u*t*t * p2[1] + t**3 * p3[1]
+                dx = 3*u*u * (p1[0]-p0[0]) + 6*u*t * (p2[0]-p1[0]) + 3*t*t * (p3[0]-p2[0])
+                dy = 3*u*u * (p1[1]-p0[1]) + 6*u*t * (p2[1]-p1[1]) + 3*t*t * (p3[1]-p2[1])
                 n = math.hypot(dx, dy)
-                for t in (0.75, 0.9):  # beyond the big circle's own rim
-                    samples["%s @%.2f" % (name, t)] = width_at((p[0] + dx * t, p[1] + dy * t), (-dy / n, dx / n))
-            for k in (0.15, 0.35, 0.5, 0.65, 0.85):  # round the rounded tip
-                ang = g["a0"] + (g["a1"] - g["a0"]) * k
-                samples["tip @%.2f" % k] = width_at((g["tip"][0] + g["rho"] * math.cos(ang), g["tip"][1] + g["rho"] * math.sin(ang)), (math.cos(ang), math.sin(ang)))
-            out["widths"] = samples
+                nx, ny = -dy / n, dx / n
+                px, py = centre[0] + x * r, centre[1] + y * r
+                count = sum(1 for i in range(-160, 161) if bright_green(px + nx * i * 0.1, py + ny * i * 0.1))
+                widths.append(count * 0.1)
+            out["widths"] = widths
             out["expected"] = SP.ARCH_WIDTH * r
-            out["tip_centre_lit"] = bright_green(centre[0] + g["tip"][0] * r, centre[1] + g["tip"][1] * r)  # inside the cone: must be dark
-            out["lit_pixels_inside_cone"] = sum(
-                1 for yy in range(int(centre[1] + g["tip"][1] * r - 6), int(centre[1] + g["tip"][1] * r + 6))
-                for xx in range(int(centre[0] + g["tip"][0] * r - 6), int(centre[0] + g["tip"][0] * r + 6)) if bright_green(xx, yy))
+            lx, ly = centre[0] + 0.832 * r, centre[1] + 0.647 * r  # where the old small circle used to be
+            out["old_circle_spot_is_lit"] = bright_green(lx, ly)
+            out["lit_pixels_inside_the_arch"] = sum(1 for yy in range(int(ly - 12), int(ly + 12)) for xx in range(int(lx - 12), int(lx + 12)) if bright_green(xx, yy))
 
         out = self.run_app(script)
         widths, expected = out["widths"], out["expected"]
-        values = list(widths.values())
-        self.assertGreater(min(values), 0, "part of the line was not found: %s" % widths)
-        # measured across lines at different angles on a pixel grid, so allow ~12% wobble; a tapering line differs by far more
-        self.assertLess(max(values) - min(values), 0.12 * expected, "the line changes thickness: %s" % {k: round(v, 1) for k, v in widths.items()})
-        self.assertAlmostEqual(sum(values) / len(values), expected, delta=0.2 * expected)
-        self.assertFalse(out["tip_centre_lit"])
-        self.assertEqual(out["lit_pixels_inside_cone"], 0, "there is something lit inside the cone: no circle should be there")
+        self.assertGreater(min(widths), 0, "the arch was not found along the curve: %s" % widths)
+        # measured across a diagonal line on a pixel grid, so allow ~12% wobble; a tapering line would differ by far more
+        self.assertLess(max(widths) - min(widths), 0.12 * expected, "the arch changes thickness: %s" % [round(v, 1) for v in widths])
+        self.assertAlmostEqual(sum(widths) / len(widths), expected, delta=0.2 * expected)
+        self.assertFalse(out["old_circle_spot_is_lit"], "there is still a filled circle inside the arch")
 
     def test_from_and_to_do_not_resize_the_window(self):
         from gi.repository import Gtk

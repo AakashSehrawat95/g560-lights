@@ -156,50 +156,31 @@ def _fabric_tile():
     return pattern
 
 
-def _cone_geometry(phi_deg, d, rho):
-    """An ice-cream cone lying on its side, in units of the big circle's radius (the unit circle).
-
-    The scoop is the unit circle. The cone is the shape you get by joining it to a small round tip of
-    radius rho, whose centre is a distance d away in direction phi, with two straight edges that touch
-    both circles smoothly. Returns the points where the single outline line leaves and rejoins the circle
-    (A and B), where its straight edges meet the rounded tip (A2 and B2), and the tip circle.
-    """
-    phi = math.radians(phi_deg)
-    beta = math.acos((1 - rho) / d)  # how far round the circle the straight edges touch it, each side of phi
-    a0, a1 = phi - beta, phi + beta
-    tip = (d * math.cos(phi), d * math.sin(phi))
-    at = lambda angle, c, rad: (c[0] + rad * math.cos(angle), c[1] + rad * math.sin(angle))
-    return {"tip": tip, "rho": rho, "a0": a0, "a1": a1, "A": at(a0, (0, 0), 1.0), "B": at(a1, (0, 0), 1.0),
-            "A2": at(a0, tip, rho), "B2": at(a1, tip, rho)}
-
-
-def _cone_points(g, n=12):
-    """The outline as points, for clicks: edge, tip arc, edge."""
-    lerp = lambda p, q, t: (p[0] + (q[0] - p[0]) * t, p[1] + (q[1] - p[1]) * t)
-    pts = [lerp(g["A"], g["A2"], i / n) for i in range(n)]
-    pts += [(g["tip"][0] + g["rho"] * math.cos(g["a0"] + (g["a1"] - g["a0"]) * i / (2 * n)),
-             g["tip"][1] + g["rho"] * math.sin(g["a0"] + (g["a1"] - g["a0"]) * i / (2 * n))) for i in range(2 * n + 1)]
-    pts += [lerp(g["B2"], g["B"], i / n) for i in range(1, n + 1)]
-    return pts
+def _sample_cubic(p0, p1, p2, p3, n):
+    """n+1 points along a cubic Bezier curve (for hit-testing the shape)."""
+    out = []
+    for i in range(n + 1):
+        t = i / n
+        u = 1 - t
+        out.append(tuple(u**3 * p0[k] + 3 * u * u * t * p1[k] + 3 * u * t * t * p2[k] + t**3 * p3[k] for k in (0, 1)))
+    return out
 
 
 class SpeakerPreview(Gtk.DrawingArea):
     """The two satellites, drawn like the real G560, in the colors being sent to the speakers.
 
     Each satellite is a round cloth grille. The REAR light is the big round glow and rim around the
-    grille; the FRONT light is a bold line round a short rounded cone (like an ice-cream cone lying on its
-    side) that points inwards from the lower inner side of the circle.
+    grille; the FRONT light is a small arch of even thickness curving out of it on the lower inner side.
     """
 
-    # The small (front) light is the outline of a short cone growing out of the big circle on its lower
-    # inner side, like an ice-cream cone lying on its side with its rounded tip pointing inwards and down
-    # (see _cone_geometry). Left speaker: +x is towards the middle, +y is down; the right is the mirror.
-    # The outline is ONE line of even thickness: it leaves the circle's edge, runs straight, turns round
-    # the rounded tip, runs straight back, and rejoins the circle. About 38 degrees below horizontal,
-    # reaching 1.4 big-circle radii at the tip, which is blunt (rounded with radius 0.26).
-    CONE = _cone_geometry(38, 1.14, 0.26)
-    SUPPORT = _cone_points(CONE)  # the same outline as points, for clicks
-    ARCH_WIDTH = 0.20  # thickness of the bold line (its coloured inside), in big-circle radii; even all along
+    # The small (front) light is an arch on the lower inner side of the big circle, drawn as a line of
+    # one even thickness. In units of the big circle's radius, for the left speaker (+x is towards the
+    # middle, +y is down): ONE smooth cubic curve (4 control points) that leaves the circle about 11
+    # degrees above 3 o'clock, bulges out to about 1.35 radii at 38 degrees below it and rejoins the
+    # circle at the bottom, loosely following the user's sketch. The right speaker is the mirror image.
+    SUPPORT_CURVE = ((0.982, -0.190), (1.411, 0.822), (1.082, 1.165), (-0.007, 1.000))
+    SUPPORT = _sample_cubic(*SUPPORT_CURVE, 24)  # the same curve as points, for clicks
+    ARCH_WIDTH = 0.20  # thickness of the bold arch (the coloured inside), in big-circle radii; even all the way along
     ARCH_OUTLINE = 2.8  # thickness of its black outline, in screen pixels
     LABEL_GAP = 28  # px between the speakers' base and the LEFT / RIGHT labels
 
@@ -217,14 +198,10 @@ class SpeakerPreview(Gtk.DrawingArea):
         self.add_controller(click)
 
     @classmethod
-    def _arch_path(cls, cr, close=False):
-        g = cls.CONE
-        cr.move_to(*g["A"])
-        cr.line_to(*g["A2"])
-        cr.arc(g["tip"][0], g["tip"][1], g["rho"], g["a0"], g["a1"])
-        cr.line_to(*g["B"])
-        if close:
-            cr.close_path()  # the straight edge back is inside the big circle, hidden behind it
+    def _arch_path(cls, cr):
+        p0, p1, p2, p3 = cls.SUPPORT_CURVE
+        cr.move_to(*p0)
+        cr.curve_to(*p1, *p2, *p3)  # an open curve: stroked with one width, so the thickness never varies
 
     def _satellite(self, cr, cx, base_y, r, mirror, ring, pod, ring_sel, pod_sel):
         lit_ring, lit_pod = max(ring) > 8, max(pod) > 8
@@ -242,18 +219,17 @@ class SpeakerPreview(Gtk.DrawingArea):
             cr.arc(-0.1, -0.1, 1.75, 0, 2 * math.pi)
             cr.fill()
 
-        # the small (front) light: the bold outline of a short cone growing out of the big circle
-        gx, gy = self.CONE["tip"]
+        # the small (front) light: an arch of even thickness, outlined in black
+        p0, p1, p2, p3 = self.SUPPORT_CURVE
         if lit_pod:  # a soft glow from the light itself; the black outline never glows
+            gx = sum(x for x, _ in self.SUPPORT) / len(self.SUPPORT)
+            gy = sum(y for _, y in self.SUPPORT) / len(self.SUPPORT)
             glow = cairo.RadialGradient(gx, gy, 0.1, gx, gy, 0.95)
             glow.add_color_stop_rgba(0, *rgb01(pod), 0.40)
             glow.add_color_stop_rgba(1, *rgb01(pod), 0.0)
             cr.set_source(glow)
             cr.arc(gx, gy, 0.95, 0, 2 * math.pi)
             cr.fill()
-        self._arch_path(cr, close=True)  # the cone itself is part of the speaker's dark body
-        cr.set_source_rgb(0.063, 0.067, 0.078)
-        cr.fill()
         cr.set_line_cap(cairo.LINE_CAP_BUTT)
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
         edge = self.ARCH_OUTLINE * px  # the black outline, in the same screen pixels however large the window is

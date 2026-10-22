@@ -22,8 +22,7 @@ wheel, brightness and speed sliders and a set of effects.
 **Per-light colors.** Every effect that has a color (Static, Breathe, Gradient, Flash,
 Candle, Music) can color the four lights separately: in the Color section pick **All** to set
 everything at once, or one light (left or right, front or rear: the small round lights are the
-*front* ones, drawn as a bold line round a short rounded cone on the lower inner side of each speaker,
-and the big glow around each grille is the *rear* one). Clicking a light in the speaker
+*front* ones and the big glow around each grille is the *rear* one). Clicking a light in the speaker
 preview selects it too.
 
 "Runs on speakers" effects keep going after you close the app. The others are
