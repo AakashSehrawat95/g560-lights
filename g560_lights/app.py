@@ -160,10 +160,23 @@ class SpeakerPreview(Gtk.DrawingArea):
     """The two satellites, drawn like the real G560, in the colors being sent to the speakers.
 
     Each satellite is a round cloth grille. The REAR light is the big round glow and rim around the
-    grille; the FRONT light is the small round lens on the lower inner side, pointing inwards.
+    grille; the FRONT light is the small lobe growing out of it on the lower inner side.
     """
 
-    POD = (0.68, 0.84, 0.30)  # front light lens: x, y, radius (unit coords; +x is the inner side, +y is down)
+    # The small (front) light is a lobe that grows out of the big circle on its lower inner side. This
+    # outline was drawn by hand (averaged from the user's sketch of both speakers) in units of the big
+    # circle's radius, for the left speaker: +x is towards the middle, +y is down. It starts on the
+    # circle about 11 degrees above 3 o'clock, swells to 1.37 radii at 34 degrees below it, and rejoins
+    # the circle at the very bottom. The right speaker is its mirror image.
+    LOBE = [
+        (0.982, -0.190), (1.016, -0.109), (1.041, -0.025), (1.061, 0.061),
+        (1.081, 0.146), (1.103, 0.232), (1.127, 0.316), (1.152, 0.400),
+        (1.166, 0.487), (1.171, 0.575), (1.167, 0.662), (1.146, 0.747),
+        (1.094, 0.817), (1.026, 0.873), (0.947, 0.912), (0.864, 0.939),
+        (0.778, 0.960), (0.692, 0.976), (0.605, 0.986), (0.517, 0.993),
+        (0.429, 0.999), (0.342, 1.008), (0.255, 1.017), (0.167, 1.018),
+        (0.079, 1.013), (-0.007, 1.000),
+    ]
     LABEL_GAP = 28  # px between the speakers' base and the LEFT / RIGHT labels
 
     def __init__(self, app_window):
@@ -173,11 +186,22 @@ class SpeakerPreview(Gtk.DrawingArea):
         self.set_hexpand(True)
         self.add_css_class("preview")
         self.set_draw_func(self._draw)
-        self.hit = {}  # zone -> [(x, y, r), ...] in widget coordinates
+        self.hit = {}  # zone -> test(x, y) in widget coordinates
         self._fabric = _fabric_tile()
         click = Gtk.GestureClick()
         click.connect("released", self._clicked)
         self.add_controller(click)
+
+    @classmethod
+    def _lobe_path(cls, cr):
+        pts = cls.LOBE
+        n = len(pts)
+        cr.move_to(*pts[0])
+        for i in range(n - 1):  # Catmull-Rom spline as Bezier segments
+            p0, p1, p2, p3 = pts[max(i - 1, 0)], pts[i], pts[i + 1], pts[min(i + 2, n - 1)]
+            cr.curve_to(p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6,
+                        p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6, p2[0], p2[1])
+        cr.close_path()  # the straight edge back is inside the big circle, hidden behind it
 
     def _satellite(self, cr, cx, base_y, r, mirror, ring, pod, ring_sel, pod_sel):
         lit_ring, lit_pod = max(ring) > 8, max(pod) > 8
@@ -195,26 +219,29 @@ class SpeakerPreview(Gtk.DrawingArea):
             cr.arc(-0.1, -0.1, 1.75, 0, 2 * math.pi)
             cr.fill()
 
-        # pod light: the lens pod behind the speaker
-        ox, oy, orad = self.POD
+        # the small (front) light: a lobe growing out of the big circle on its lower inner side
         if lit_pod:
-            glow = cairo.RadialGradient(ox, oy, orad * 0.4, ox, oy, orad * 2.8)
-            glow.add_color_stop_rgba(0, *rgb01(pod), 0.65)
+            cx0, cy0 = 0.95, 0.62
+            glow = cairo.RadialGradient(cx0, cy0, 0.15, cx0, cy0, 1.0)
+            glow.add_color_stop_rgba(0, *rgb01(pod), 0.6)
             glow.add_color_stop_rgba(1, *rgb01(pod), 0.0)
             cr.set_source(glow)
-            cr.arc(ox, oy, orad * 2.8, 0, 2 * math.pi)
+            cr.arc(cx0, cy0, 1.0, 0, 2 * math.pi)
             cr.fill()
-        cr.arc(ox, oy, orad, 0, 2 * math.pi)
-        cr.set_source_rgb(0.105, 0.11, 0.135)
+            cr.set_line_join(cairo.LINE_JOIN_ROUND)
+            for width, alpha in ((0.34, 0.07), (0.20, 0.12), (0.09, 0.22)):  # soft bloom around the edge
+                self._lobe_path(cr)
+                cr.set_source_rgba(*rgb01(pod), alpha)
+                cr.set_line_width(width)
+                cr.stroke()
+        self._lobe_path(cr)
+        cr.set_source_rgb(*rgb01(pod)) if lit_pod else cr.set_source_rgb(0.15, 0.16, 0.19)
         cr.fill_preserve()
-        cr.set_source_rgba(1, 1, 1, 0.20)
-        cr.set_line_width(1.4 * px)
+        cr.set_source_rgba(0, 0, 0, 0.35)
+        cr.set_line_width(1.6 * px)
         cr.stroke()
-        cr.arc(ox, oy, orad * 0.72, 0, 2 * math.pi)
-        cr.set_source_rgb(*rgb01(pod)) if lit_pod else cr.set_source_rgb(0.16, 0.17, 0.2)
-        cr.fill()
         if pod_sel:
-            cr.arc(ox, oy, orad * 1.3, 0, 2 * math.pi)
+            self._lobe_path(cr)
             cr.set_source_rgba(1, 1, 1, 0.95)
             cr.set_line_width(2.2 * px)
             cr.stroke()
@@ -226,7 +253,7 @@ class SpeakerPreview(Gtk.DrawingArea):
         if lit_ring:
             cr.set_line_cap(cairo.LINE_CAP_ROUND)
             for width, alpha in ((0.34, 0.14), (0.18, 0.3), (0.075, 1.0)):  # bloom, then the bright core
-                cr.arc(0, 0, 1.06, math.radians(90), math.radians(360))  # three quarters: all but the lower inner one, where the small lens sits
+                cr.arc(0, 0, 1.06, math.radians(90), math.radians(349))  # all but the lower inner quarter, where the small light's lobe grows out
                 cr.set_source_rgba(*rgb01(ring), alpha)
                 cr.set_line_width(width)
                 cr.stroke()
@@ -288,9 +315,10 @@ class SpeakerPreview(Gtk.DrawingArea):
             self._satellite(cr, cx, base_y, r, mirror, colors[ring_zone], colors[pod_zone],
                             editing == ring_zone, editing == pod_zone)
             sx = -1 if mirror else 1
-            self.hit[ring_zone] = [(cx, cy, 1.15 * r)]
-            px, py, pr = self.POD
-            self.hit[pod_zone] = [(cx + sx * px * r, cy + py * r, 1.4 * pr * r)]
+            outline = [(cx + sx * x * r, cy + y * r) for x, y in self.LOBE]
+            self.hit[pod_zone] = lambda x, y, o=outline, c=(cx, cy), rr=r: (
+                math.hypot(x - c[0], y - c[1]) > 0.98 * rr and self._inside(o, x, y))
+            self.hit[ring_zone] = lambda x, y, c=(cx, cy), rr=r: math.hypot(x - c[0], y - c[1]) <= 1.14 * rr
 
         cr.set_source_rgba(1, 1, 1, 0.42)
         cr.select_font_face("sans", cairo.FONT_SLANT_NORMAL, cairo.FONT_WEIGHT_NORMAL)
@@ -300,9 +328,23 @@ class SpeakerPreview(Gtk.DrawingArea):
             cr.move_to(cx - ext.width / 2, base_y + self.LABEL_GAP)
             cr.show_text(text)
 
+    @staticmethod
+    def _inside(polygon, x, y):
+        """Point-in-polygon (ray casting)."""
+        inside = False
+        j = len(polygon) - 1
+        for i, (xi, yi) in enumerate(polygon):
+            xj, yj = polygon[j]
+            if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+                inside = not inside
+            j = i
+        return inside
+
     def _clicked(self, _gesture, _n, x, y):
-        for zone, spots in self.hit.items():
-            if any(math.hypot(x - cx, y - cy) <= rr for cx, cy, rr in spots):
+        # the small lights (lobes) first: they only overlap the big circle's area outside its edge
+        ordered = sorted(self.hit.items(), key=lambda kv: kv[0] not in (ZONE_LEFT_FRONT, ZONE_RIGHT_FRONT))
+        for zone, test in ordered:
+            if test(x, y):
                 self.win.select_zone(zone)
                 return
 

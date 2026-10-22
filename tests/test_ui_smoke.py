@@ -188,6 +188,40 @@ class UiSmoke(unittest.TestCase):
         self.assertTrue(out["follows_disk"])
         self.assertTrue(out["old_menu_item_gone"])
 
+    def test_clicking_the_lobe_picks_the_small_light_and_the_grille_picks_the_big_one(self):
+        from g560_lights import device
+        from g560_lights.app import SpeakerPreview
+
+        def script(win, out):
+            prev = win.preview
+            w, h = prev.get_width(), prev.get_height()
+            r = min(53.0, w * 0.1)
+            cy = (h - 44) / 2.0 + 4
+            spots = {"left lobe": (w * 0.3 + 1.1 * r, cy + 0.35 * r), "left grille": (w * 0.3, cy),
+                     "right lobe": (w * 0.7 - 1.1 * r, cy + 0.35 * r), "right grille": (w * 0.7, cy),
+                     "empty corner": (w * 0.05, cy - 0.9 * r), "gap beside the lobe": (w * 0.3 + 1.3 * r, cy - 0.5 * r)}
+            for name, (x, y) in spots.items():
+                win.state.sync = True
+                win.zone = -1
+                prev._clicked(None, 1, x, y)
+                out[name] = win.zone if not win.state.sync else None
+            # the lobe outline really reaches 1.37 radii out and starts/ends on the circle
+            import math
+            radii = [math.hypot(x, y) for x, y in SpeakerPreview.LOBE]
+            out["lobe_far"] = round(max(radii), 2)
+            out["lobe_ends_on_circle"] = abs(radii[0] - 1.0) < 0.05 and abs(radii[-1] - 1.0) < 0.05
+
+        out = self.run_app(script)
+        from g560_lights import device
+        self.assertEqual(out["left lobe"], device.ZONE_LEFT_FRONT)
+        self.assertEqual(out["left grille"], device.ZONE_LEFT_REAR)
+        self.assertEqual(out["right lobe"], device.ZONE_RIGHT_FRONT)
+        self.assertEqual(out["right grille"], device.ZONE_RIGHT_REAR)
+        self.assertIsNone(out["empty corner"])
+        self.assertIsNone(out["gap beside the lobe"])
+        self.assertEqual(out["lobe_far"], 1.37)
+        self.assertTrue(out["lobe_ends_on_circle"])
+
     def test_from_and_to_do_not_resize_the_window(self):
         from gi.repository import Gtk
 
