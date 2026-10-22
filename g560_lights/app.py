@@ -168,6 +168,7 @@ class SpeakerPreview(Gtk.DrawingArea):
     # circle's radius, for the left speaker: +x is towards the middle, +y is down. It starts on the
     # circle about 11 degrees above 3 o'clock, swells to 1.37 radii at 34 degrees below it, and rejoins
     # the circle at the very bottom. The right speaker is its mirror image.
+    LOBE_OUTLINE = 0.10  # thickness of the lit edge, in big-circle radii, measured inwards from the outline
     LOBE = [
         (0.982, -0.190), (1.016, -0.109), (1.041, -0.025), (1.061, 0.061),
         (1.081, 0.146), (1.103, 0.232), (1.127, 0.316), (1.152, 0.400),
@@ -236,10 +237,20 @@ class SpeakerPreview(Gtk.DrawingArea):
                 cr.stroke()
         self._lobe_path(cr)
         cr.set_source_rgb(*rgb01(pod)) if lit_pod else cr.set_source_rgb(0.15, 0.16, 0.19)
-        cr.fill_preserve()
-        cr.set_source_rgba(0, 0, 0, 0.35)
-        cr.set_line_width(1.6 * px)
+        cr.fill()
+        # A thick outline, drawn inwards (clipped to the shape) so the silhouette stays exactly as sketched.
+        cr.save()
+        self._lobe_path(cr)
+        cr.clip()
+        self._lobe_path(cr)
+        if lit_pod:
+            cr.set_source_rgb(*[c + (1.0 - c) * 0.45 for c in rgb01(pod)])  # the light's colour, brightened
+        else:
+            cr.set_source_rgba(1, 1, 1, 0.14)
+        cr.set_line_join(cairo.LINE_JOIN_ROUND)
+        cr.set_line_width(2 * self.LOBE_OUTLINE)
         cr.stroke()
+        cr.restore()
         if pod_sel:
             self._lobe_path(cr)
             cr.set_source_rgba(1, 1, 1, 0.95)
