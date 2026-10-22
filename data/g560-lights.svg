@@ -38,6 +38,9 @@
   <circle cx="64" cy="64" r="38.6" fill="url(#face)"/>
   <circle cx="64" cy="64" r="38.6" fill="url(#fabric)"/>
   <circle cx="64" cy="64" r="37.8" fill="none" stroke="#fff" stroke-opacity="0.16" stroke-width="1.4"/>
-  <path d="M43 46 A30 30 0 0 1 85 46" fill="none" stroke="#fff" stroke-opacity="0.15" stroke-width="2.4" stroke-linecap="round"/>
-  <circle cx="64" cy="92" r="2.6" fill="none" stroke="#fff" stroke-opacity="0.35" stroke-width="1.2"/>
+  <!-- white indicator dot, top centre -->
+  <circle cx="64" cy="38.5" r="4.6" fill="#fff" fill-opacity="0.16"/>
+  <circle cx="64" cy="38.5" r="2.5" fill="#fff" fill-opacity="0.95"/>
+  <!-- small G, bottom centre -->
+  <path d="M68.87 87.02 A5.2 5.2 0 1 0 69.2 90.5 H64.3" fill="none" stroke="#fff" stroke-opacity="0.9" stroke-width="2.3" stroke-linecap="butt" stroke-linejoin="miter"/>
 </svg>
