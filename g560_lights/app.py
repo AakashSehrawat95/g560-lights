@@ -170,18 +170,19 @@ class SpeakerPreview(Gtk.DrawingArea):
     """The two satellites, drawn like the real G560, in the colors being sent to the speakers.
 
     Each satellite is a round cloth grille. The REAR light is the big round glow and rim around the
-    grille; the FRONT light is a small arch of even thickness curving out of it on the lower inner side.
+    grille; the FRONT light is the small round light resting in a curved support on the lower inner side.
     """
 
-    # The small (front) light is an arch on the lower inner side of the big circle, drawn as a line of
-    # one even thickness. In units of the big circle's radius, for the left speaker (+x is towards the
-    # middle, +y is down): ONE smooth cubic curve (4 control points) that leaves the circle about 11
-    # degrees above 3 o'clock, bulges out to about 1.35 radii at 38 degrees below it and rejoins the
-    # circle at the bottom, loosely following the user's sketch. The right speaker is the mirror image.
+    # The small (front) light is a round light resting in a support that grows out of the big circle on
+    # its lower inner side. In units of the big circle's radius, for the left speaker (+x is towards the
+    # middle, +y is down): the support is ONE smooth cubic curve (4 control points) that leaves the
+    # circle about 11 degrees above 3 o'clock, bulges out to about 1.35 radii at 38 degrees below it and
+    # rejoins the circle at the bottom, loosely following the user's sketch. The light is a circle
+    # seated on that curve, touching it at its farthest point, with over half of it outside the big
+    # circle. The right speaker is the mirror image.
     SUPPORT_CURVE = ((0.982, -0.190), (1.411, 0.822), (1.082, 1.165), (-0.007, 1.000))
     SUPPORT = _sample_cubic(*SUPPORT_CURVE, 24)  # the same curve as points, for clicks
-    ARCH_WIDTH = 0.20  # thickness of the bold arch (the coloured inside), in big-circle radii; even all the way along
-    ARCH_OUTLINE = 2.8  # thickness of its black outline, in screen pixels
+    LIGHT = (0.832, 0.647, 0.30)  # x, y, radius of the round light
     LABEL_GAP = 28  # px between the speakers' base and the LEFT / RIGHT labels
 
     def __init__(self, app_window):
@@ -198,10 +199,11 @@ class SpeakerPreview(Gtk.DrawingArea):
         self.add_controller(click)
 
     @classmethod
-    def _arch_path(cls, cr):
+    def _support_path(cls, cr):
         p0, p1, p2, p3 = cls.SUPPORT_CURVE
         cr.move_to(*p0)
-        cr.curve_to(*p1, *p2, *p3)  # an open curve: stroked with one width, so the thickness never varies
+        cr.curve_to(*p1, *p2, *p3)
+        cr.close_path()  # the straight edge back is inside the big circle, hidden behind it
 
     def _satellite(self, cr, cx, base_y, r, mirror, ring, pod, ring_sel, pod_sel):
         lit_ring, lit_pod = max(ring) > 8, max(pod) > 8
@@ -219,33 +221,39 @@ class SpeakerPreview(Gtk.DrawingArea):
             cr.arc(-0.1, -0.1, 1.75, 0, 2 * math.pi)
             cr.fill()
 
-        # the small (front) light: an arch of even thickness, outlined in black
-        p0, p1, p2, p3 = self.SUPPORT_CURVE
-        if lit_pod:  # a soft glow from the light itself; the black outline never glows
-            gx = sum(x for x, _ in self.SUPPORT) / len(self.SUPPORT)
-            gy = sum(y for _, y in self.SUPPORT) / len(self.SUPPORT)
-            glow = cairo.RadialGradient(gx, gy, 0.1, gx, gy, 0.95)
-            glow.add_color_stop_rgba(0, *rgb01(pod), 0.40)
+        # the small (front) light: a round light resting in a curved support
+        lx, ly, lr = self.LIGHT
+        if lit_pod:  # the light's own soft glow; nothing glows along any outline
+            glow = cairo.RadialGradient(lx, ly, lr * 0.6, lx, ly, lr * 3.2)
+            glow.add_color_stop_rgba(0, *rgb01(pod), 0.55)
             glow.add_color_stop_rgba(1, *rgb01(pod), 0.0)
             cr.set_source(glow)
-            cr.arc(gx, gy, 0.95, 0, 2 * math.pi)
+            cr.arc(lx, ly, lr * 3.2, 0, 2 * math.pi)
             cr.fill()
-        cr.set_line_cap(cairo.LINE_CAP_BUTT)
         cr.set_line_join(cairo.LINE_JOIN_ROUND)
-        edge = self.ARCH_OUTLINE * px  # the black outline, in the same screen pixels however large the window is
-        if pod_sel:  # a white halo just outside the black outline marks the selected light
-            self._arch_path(cr)
+        self._support_path(cr)  # the support: dark, with an outline that is always black
+        cr.set_source_rgb(0.125, 0.13, 0.15)
+        cr.fill_preserve()
+        cr.set_source_rgb(0, 0, 0)
+        cr.set_line_width(1.8 * px)
+        cr.stroke()
+        cr.arc(lx, ly, lr, 0, 2 * math.pi)  # the light itself
+        if lit_pod:
+            shine = cairo.RadialGradient(lx - 0.09, ly - 0.09, 0.02, lx, ly, lr)
+            shine.add_color_stop_rgb(0, *[c + (1.0 - c) * 0.35 for c in rgb01(pod)])
+            shine.add_color_stop_rgb(1, *rgb01(pod))
+            cr.set_source(shine)
+        else:
+            cr.set_source_rgb(0.16, 0.17, 0.2)
+        cr.fill_preserve()
+        cr.set_source_rgb(0, 0, 0)
+        cr.set_line_width(1.6 * px)
+        cr.stroke()
+        if pod_sel:
+            cr.arc(lx, ly, lr * 1.3, 0, 2 * math.pi)
             cr.set_source_rgba(1, 1, 1, 0.95)
-            cr.set_line_width(self.ARCH_WIDTH + 2 * edge + 4.4 * px)
+            cr.set_line_width(2.2 * px)
             cr.stroke()
-        self._arch_path(cr)
-        cr.set_source_rgb(0, 0, 0)  # always black
-        cr.set_line_width(self.ARCH_WIDTH + 2 * edge)
-        cr.stroke()
-        self._arch_path(cr)
-        cr.set_source_rgb(*rgb01(pod)) if lit_pod else cr.set_source_rgb(0.16, 0.17, 0.2)
-        cr.set_line_width(self.ARCH_WIDTH)
-        cr.stroke()
 
         # the dark housing ring and the glowing rim around the grille
         cr.arc(0, 0, 1.07, 0, 2 * math.pi)  # the dark housing ring around the face
@@ -307,7 +315,7 @@ class SpeakerPreview(Gtk.DrawingArea):
         label_space = 44
         cy = (h - label_space) / 2.0 + 4
         base_y = cy + r
-        left_x, right_x = w * 0.27, w * 0.73
+        left_x, right_x = w * 0.3, w * 0.7
 
         for side, cx in (("left", left_x), ("right", right_x)):
             mirror = side == "right"
