@@ -11,6 +11,8 @@ from .device import DeviceError, G560
 # report needs a few ms to settle), so this is close to their ceiling.
 FPS = 25
 RETRY_SECONDS = 2.0
+# How often to check that the speakers we have open are still the same device.
+REPLUG_CHECK_SECONDS = 1.0
 # Breathe and Spectrum run on the speakers and restart from the beginning every
 # time they are re-sent, so dragging a slider would make them blink. Send at
 # most this often while a slider moves; the final value always gets through.
@@ -31,6 +33,9 @@ class NullSpeakers:
 
     def invalidate(self):
         pass
+
+    def was_replugged(self):
+        return False
 
     def set_static(self, colors):
         pass
@@ -109,7 +114,7 @@ class Engine:
             self.on_status(ok, message)
 
     def _run(self):
-        last_try = 0.0
+        last_try = last_check = 0.0
         while not self._quit.is_set():
             frame_start = time.monotonic()
             with self._lock:
@@ -127,6 +132,11 @@ class Engine:
                     dirty, hold = False, wait
 
             try:
+                if self.device.is_open and frame_start - last_check >= REPLUG_CHECK_SECONDS:
+                    last_check = frame_start
+                    if self.device.was_replugged():
+                        self.device.close()  # reopened below, and everything resent
+                        last_try = 0.0
                 if not self.device.is_open:
                     if frame_start - last_try < RETRY_SECONDS and not dirty:
                         self._wake.wait(0.25)

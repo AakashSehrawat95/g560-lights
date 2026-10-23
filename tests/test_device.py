@@ -69,6 +69,22 @@ class G560WriteTests(unittest.TestCase):
         dev.set_off()
         self.assertEqual(len(self.writes), 8)
 
+    def test_replug_is_detected_when_the_speakers_come_back_as_a_new_device(self):
+        ident = {"now": "/sys/devices/usb/0003:046D:0A78.0047"}
+        orig = device._identity
+        device._identity = lambda path: ident["now"]
+        try:
+            dev = device.G560()
+            self.assertFalse(dev.was_replugged())  # not open: nothing to compare
+            dev.open()
+            self.assertFalse(dev.was_replugged())
+            ident["now"] = "/sys/devices/usb/0003:046D:0A78.0049"  # re-enumerated, same /dev/hidraw name
+            self.assertTrue(dev.was_replugged())
+            device.find_hidraw = lambda: None  # gone altogether
+            self.assertTrue(dev.was_replugged())
+        finally:
+            device._identity = orig
+
     def test_writes_are_spaced(self):
         stamps = []
         device.os.write = lambda fd, data: stamps.append(device.time.monotonic()) or len(data)

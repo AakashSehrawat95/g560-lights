@@ -64,6 +64,11 @@ def find_hidraw():
     return None
 
 
+def _identity(path):
+    """Which physical connection `path` is: a new HID device every time the speakers re-enumerate."""
+    return os.path.realpath("/sys/class/hidraw/%s/device" % os.path.basename(path))
+
+
 def _clamp(value, low, high):
     return max(low, min(high, int(value)))
 
@@ -96,6 +101,7 @@ class G560:
 
     def __init__(self):
         self._fd = None
+        self._identity = None
         self._lock = threading.Lock()
         self._last = {}
         self._last_write = 0.0
@@ -124,7 +130,21 @@ class G560:
             )
         except OSError as e:
             raise DeviceError("Could not open %s: %s" % (path, e))
+        self._identity = _identity(path)
         self._last = {}
+
+    def was_replugged(self):
+        """True if the speakers we have open are gone or came back as a new device.
+
+        The speakers re-enumerate when they reconnect or wake from standby; our file
+        descriptor then points at the dead old device, and (for effects that run on the
+        speakers) nothing is written that would reveal it.
+        """
+        with self._lock:
+            if self._fd is None:
+                return False
+            path = find_hidraw()
+            return path is None or _identity(path) != self._identity
 
     def close(self):
         with self._lock:

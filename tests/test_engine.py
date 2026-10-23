@@ -8,6 +8,7 @@ from g560_lights import config, engine
 class FakeSpeakers:
     def __init__(self):
         self.is_open = False
+        self.replugged = False
         self.frames, self.breathes, self.cycles, self.offs = [], [], [], 0
         self.lock = threading.Lock()
 
@@ -19,6 +20,9 @@ class FakeSpeakers:
 
     def invalidate(self):
         pass
+
+    def was_replugged(self):
+        return self.replugged
 
     def set_static(self, colors):
         with self.lock:
@@ -88,6 +92,23 @@ class EngineTests(unittest.TestCase):
         first = eng.preview(st)
         time.sleep(0.2)
         self.assertNotEqual(first, eng.preview(st))
+
+    def test_replugged_speakers_get_everything_resent(self):
+        # Speakers that re-enumerate (reconnect, wake from standby) lose their lights; a static
+        # colour or hardware effect writes nothing more, so only a replug check can notice.
+        for effect in ("static", "breathe"):
+            state = config.State(effect=effect, zone_colors=[(1, 0, 0), (0, 2, 0), (0, 0, 3), (4, 4, 4)])
+            seen = {}
+
+            def replug(eng, st):
+                time.sleep(0.3)
+                seen["before"] = len(eng.device.frames) + len(eng.device.breathes)
+                eng.device.replugged = True
+                time.sleep(1.8)
+
+            with self.subTest(effect=effect):
+                dev = run_engine(state, replug, 2.2)
+                self.assertGreater(len(dev.frames) + len(dev.breathes), seen["before"])
 
     def test_breathe_is_not_restarted_on_every_slider_step(self):
         state = config.State(effect="breathe", zone_colors=[(1, 0, 0), (0, 2, 0), (0, 0, 3), (4, 4, 4)])
